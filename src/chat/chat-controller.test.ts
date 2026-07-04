@@ -12,8 +12,14 @@ function makeIdentity(nickname: string): Identity {
   return { nickname, signPublicKey: signing.publicKey, signPrivateKey: signing.privateKey, dhPublicKey: dh.publicKey, dhPrivateKey: dh.privateKey }
 }
 
-async function wait(ms = 80) {
-  await new Promise((r) => setTimeout(r, ms))
+async function waitUntil(predicate: () => boolean, timeoutMs = 3000, intervalMs = 20): Promise<void> {
+  const start = Date.now()
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error('waitUntil: timed out waiting for condition')
+    }
+    await new Promise((r) => setTimeout(r, intervalMs))
+  }
 }
 
 describe('ChatController', () => {
@@ -46,12 +52,12 @@ describe('ChatController', () => {
     bob.onMessage((m) => bobMessages.push(m.text))
 
     await bob.start()
-    await wait() // presence exchange + key package delivery
+    await waitUntil(() => bobGroupKey.hasRoomKey()) // presence exchange + key package delivery
 
     expect(bobGroupKey.hasRoomKey()).toBe(true)
 
     await alice.sendGroupMessage('hello room')
-    await wait()
+    await waitUntil(() => bobMessages.includes('hello room'))
 
     expect(bobMessages).toContain('hello room')
   })
@@ -62,7 +68,8 @@ describe('ChatController', () => {
     const aliceIdentity = makeIdentity('alice')
     const aliceTransport = new MockHubTransport(room)
     transports.push(aliceTransport)
-    const alice = new ChatController(aliceTransport, aliceIdentity, new RosterManager(), new GroupKeyManager())
+    const aliceRoster = new RosterManager()
+    const alice = new ChatController(aliceTransport, aliceIdentity, aliceRoster, new GroupKeyManager())
     await alice.start()
 
     const bobIdentity = makeIdentity('bob')
@@ -81,11 +88,11 @@ describe('ChatController', () => {
     carol.onMessage((m) => carolMessages.push(m.text))
     await carol.start()
 
-    await wait()
-
     const bobShortId = bobTransport.myShortId!
+    await waitUntil(() => aliceRoster.getMember(bobShortId) !== undefined)
+
     await alice.sendDirectMessage(bobShortId, 'psst just you')
-    await wait()
+    await waitUntil(() => bobMessages.includes('psst just you'))
 
     expect(bobMessages).toContain('psst just you')
     expect(carolMessages).not.toContain('psst just you')
