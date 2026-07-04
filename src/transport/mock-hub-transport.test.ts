@@ -90,6 +90,36 @@ describe('MockHubTransport', () => {
     expect(a.myShortId).toBeNull()
   })
 
+  it('gives a lone connecting transport an empty member list, not containing its own id', async () => {
+    const room = crypto.randomUUID()
+    const a = make(room)
+
+    const lists: number[][] = []
+    a.onMemberList((ids) => lists.push(ids))
+
+    await a.connect()
+
+    expect(lists.length).toBeGreaterThan(0)
+    expect(lists[0]).toEqual([])
+    expect(lists[0]).not.toContain(a.myShortId)
+  })
+
+  it('gives a second joiner a member list containing the first member but not its own id', async () => {
+    const room = crypto.randomUUID()
+    const a = make(room)
+    const b = make(room)
+    await a.connect()
+
+    const lists: number[][] = []
+    b.onMemberList((ids) => lists.push(ids))
+
+    await b.connect()
+
+    expect(lists.length).toBeGreaterThan(0)
+    expect(lists[0]).toContain(a.myShortId)
+    expect(lists[0]).not.toContain(b.myShortId)
+  })
+
   it('treats reconnecting the same instance as a new peer join', async () => {
     const room = crypto.randomUUID()
     const a = make(room)

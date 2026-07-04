@@ -46,6 +46,9 @@ export class ChatController {
     this.transport.onFrame((bytes) => this.handleIncomingBytes(bytes))
 
     await this.transport.connect()
+    if (this.roster.isEmpty()) {
+      await this.groupKey.mintNewRoomKey()
+    }
     await this.broadcastPresence()
 
     setInterval(() => this.reassembler.sweep(Date.now(), REASSEMBLY_TIMEOUT_MS), REASSEMBLY_SWEEP_INTERVAL_MS)

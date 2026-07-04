@@ -111,9 +111,6 @@ export async function mountApp(root: HTMLElement): Promise<void> {
       joinButton.disabled = false
       return
     }
-    if (roster.isEmpty()) {
-      await groupKey.mintNewRoomKey()
-    }
 
     setupEl.hidden = true
     chatEl.hidden = false

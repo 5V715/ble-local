@@ -38,8 +38,7 @@ describe('ChatController', () => {
     const aliceRoster = new RosterManager()
     const aliceGroupKey = new GroupKeyManager()
     const alice = new ChatController(aliceTransport, aliceIdentity, aliceRoster, aliceGroupKey)
-    await alice.start()
-    await aliceGroupKey.mintNewRoomKey()
+    await alice.start() // alice is first in the room, so start() mints the room key via the real bootstrap gate
 
     const bobIdentity = makeIdentity('bob')
     const bobTransport = new MockHubTransport(room)

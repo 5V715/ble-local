@@ -41,8 +41,12 @@ export class MockHubTransport implements Transport {
 
     const candidate = this.pickNextShortId()
     this._myShortId = candidate
-    this.knownShortIds.add(candidate)
+    // Fire the member-list snapshot BEFORE adding our own candidate id to
+    // knownShortIds — a member list represents OTHER members, not ourselves.
+    // (Adding self first would make a lone joiner see itself in its own
+    // member list, breaking any isEmpty()-style bootstrap check downstream.)
     this.listCbs.forEach((cb) => cb([...this.knownShortIds]))
+    this.knownShortIds.add(candidate)
     this.broadcast({ kind: 'announce', instanceId: this.instanceId, shortId: candidate })
   }
 
