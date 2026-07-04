@@ -121,6 +121,7 @@ export class ChatController {
     }
 
     if (reassembled.msgType === MessageType.KEY_PACKAGE) {
+      if (reassembled.recipientShortId !== this.transport.myShortId) return
       const sender = this.roster.getMember(reassembled.senderShortId)
       if (!sender) return
       await this.groupKey.acceptKeyPackage(reassembled.payload, sender.signPublicKey, this.identity, sender.dhPublicKey)
