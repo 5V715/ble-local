@@ -34,11 +34,20 @@ export async function mountApp(root: HTMLElement): Promise<void> {
   const messageInput = root.querySelector<HTMLInputElement>('#message-input')!
 
   let activeThreadShortId: number | null = null // null = group room
+  let joinInProgress = false
 
   joinButton.addEventListener('click', async () => {
+    if (joinInProgress) return
+    joinInProgress = true
+    joinButton.disabled = true
+
     const nickname = nicknameInput.value.trim()
     const room = roomInput.value.trim()
-    if (!nickname || !room) return
+    if (!nickname || !room) {
+      joinInProgress = false
+      joinButton.disabled = false
+      return
+    }
 
     const identity = await loadOrCreateIdentity(indexedDB, nickname)
     const transport = new MockHubTransport(room)
@@ -61,16 +70,32 @@ export async function mountApp(root: HTMLElement): Promise<void> {
     renderThreadLabel()
 
     setInterval(() => {
-      rosterEl.innerHTML = roster
-        .getAllMembers()
-        .map(
-          (m) =>
-            `<span>
-               <button data-short-id="${m.shortId}">${m.nickname} (${fingerprint(m).slice(0, 9)}${m.verified ? ' ✓' : ''})</button>
-               ${m.verified ? '' : `<button data-verify-id="${m.shortId}">Verify</button>`}
-             </span>`
-        )
-        .join(' ') + ` <button data-short-id="group">Group room</button>`
+      rosterEl.replaceChildren()
+
+      for (const m of roster.getAllMembers()) {
+        const span = document.createElement('span')
+
+        const memberButton = document.createElement('button')
+        memberButton.dataset.shortId = String(m.shortId)
+        memberButton.textContent = `${m.nickname} (${fingerprint(m).slice(0, 9)}${m.verified ? ' ✓' : ''})`
+        span.appendChild(memberButton)
+
+        if (!m.verified) {
+          span.appendChild(document.createTextNode(' '))
+          const verifyButton = document.createElement('button')
+          verifyButton.dataset.verifyId = String(m.shortId)
+          verifyButton.textContent = 'Verify'
+          span.appendChild(verifyButton)
+        }
+
+        rosterEl.appendChild(span)
+        rosterEl.appendChild(document.createTextNode(' '))
+      }
+
+      const groupButton = document.createElement('button')
+      groupButton.dataset.shortId = 'group'
+      groupButton.textContent = 'Group room'
+      rosterEl.appendChild(groupButton)
     }, 500)
 
     rosterEl.addEventListener('click', (event) => {
