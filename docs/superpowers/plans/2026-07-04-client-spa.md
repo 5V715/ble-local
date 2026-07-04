@@ -2267,11 +2267,23 @@ export async function mountApp(root: HTMLElement): Promise<void> {
   const messageInput = root.querySelector<HTMLInputElement>('#message-input')!
 
   let activeThreadShortId: number | null = null // null = group room
+  let joinInProgress = false
 
   joinButton.addEventListener('click', async () => {
+    // Guard against a second click starting a second controller/transport
+    // before the first join's awaits resolve — without this, two independent
+    // ChatController/RosterManager/setInterval sets would run concurrently.
+    if (joinInProgress) return
+    joinInProgress = true
+    joinButton.disabled = true
+
     const nickname = nicknameInput.value.trim()
     const room = roomInput.value.trim()
-    if (!nickname || !room) return
+    if (!nickname || !room) {
+      joinInProgress = false
+      joinButton.disabled = false
+      return
+    }
 
     const identity = await loadOrCreateIdentity(indexedDB, nickname)
     const transport = new MockHubTransport(room)
@@ -2294,16 +2306,35 @@ export async function mountApp(root: HTMLElement): Promise<void> {
     renderThreadLabel()
 
     setInterval(() => {
-      rosterEl.innerHTML = roster
-        .getAllMembers()
-        .map(
-          (m) =>
-            `<span>
-               <button data-short-id="${m.shortId}">${m.nickname} (${fingerprint(m).slice(0, 9)}${m.verified ? ' ✓' : ''})</button>
-               ${m.verified ? '' : `<button data-verify-id="${m.shortId}">Verify</button>`}
-             </span>`
-        )
-        .join(' ') + ` <button data-short-id="group">Group room</button>`
+      // Built with createElement/textContent, not innerHTML — nickname comes
+      // from a peer's own PRESENCE broadcast (attacker-controlled) and must
+      // never be parsed as markup.
+      rosterEl.replaceChildren()
+
+      for (const m of roster.getAllMembers()) {
+        const span = document.createElement('span')
+
+        const memberButton = document.createElement('button')
+        memberButton.dataset.shortId = String(m.shortId)
+        memberButton.textContent = `${m.nickname} (${fingerprint(m).slice(0, 9)}${m.verified ? ' ✓' : ''})`
+        span.appendChild(memberButton)
+
+        if (!m.verified) {
+          span.appendChild(document.createTextNode(' '))
+          const verifyButton = document.createElement('button')
+          verifyButton.dataset.verifyId = String(m.shortId)
+          verifyButton.textContent = 'Verify'
+          span.appendChild(verifyButton)
+        }
+
+        rosterEl.appendChild(span)
+        rosterEl.appendChild(document.createTextNode(' '))
+      }
+
+      const groupButton = document.createElement('button')
+      groupButton.dataset.shortId = 'group'
+      groupButton.textContent = 'Group room'
+      rosterEl.appendChild(groupButton)
     }, 500)
 
     rosterEl.addEventListener('click', (event) => {
@@ -2782,20 +2813,33 @@ export async function mountApp(root: HTMLElement): Promise<void> {
   const messageInput = root.querySelector<HTMLInputElement>('#message-input')!
 
   let activeThreadShortId: number | null = null // null = group room
+  let joinInProgress = false
 
   modeSelect.addEventListener('change', () => {
     roomLabel.hidden = modeSelect.value === 'bluetooth'
   })
 
   joinButton.addEventListener('click', async () => {
+    // Guard against a second click starting a second controller/transport
+    // before the first join's awaits resolve.
+    if (joinInProgress) return
+    joinInProgress = true
+    joinButton.disabled = true
+
     const nickname = nicknameInput.value.trim()
-    if (!nickname) return
+    if (!nickname) {
+      joinInProgress = false
+      joinButton.disabled = false
+      return
+    }
     setupError.textContent = ''
 
     let transport: Transport
     if (modeSelect.value === 'bluetooth') {
       if (!isWebBluetoothSupported()) {
         setupError.textContent = 'This browser does not support Web Bluetooth. Use Chrome or a Chromium-based browser.'
+        joinInProgress = false
+        joinButton.disabled = false
         return
       }
       const bleTransport = new WebBluetoothTransport()
@@ -2805,7 +2849,11 @@ export async function mountApp(root: HTMLElement): Promise<void> {
       transport = bleTransport
     } else {
       const room = roomInput.value.trim()
-      if (!room) return
+      if (!room) {
+        joinInProgress = false
+        joinButton.disabled = false
+        return
+      }
       transport = new MockHubTransport(room)
     }
 
@@ -2823,6 +2871,8 @@ export async function mountApp(root: HTMLElement): Promise<void> {
       await controller.start()
     } catch (error) {
       setupError.textContent = error instanceof Error ? error.message : 'Failed to connect.'
+      joinInProgress = false
+      joinButton.disabled = false
       return
     }
     if (roster.isEmpty()) {
@@ -2834,16 +2884,35 @@ export async function mountApp(root: HTMLElement): Promise<void> {
     renderThreadLabel()
 
     setInterval(() => {
-      rosterEl.innerHTML = roster
-        .getAllMembers()
-        .map(
-          (m) =>
-            `<span>
-               <button data-short-id="${m.shortId}">${m.nickname} (${fingerprint(m).slice(0, 9)}${m.verified ? ' ✓' : ''})</button>
-               ${m.verified ? '' : `<button data-verify-id="${m.shortId}">Verify</button>`}
-             </span>`
-        )
-        .join(' ') + ` <button data-short-id="group">Group room</button>`
+      // Built with createElement/textContent, not innerHTML — nickname comes
+      // from a peer's own PRESENCE broadcast (attacker-controlled) and must
+      // never be parsed as markup.
+      rosterEl.replaceChildren()
+
+      for (const m of roster.getAllMembers()) {
+        const span = document.createElement('span')
+
+        const memberButton = document.createElement('button')
+        memberButton.dataset.shortId = String(m.shortId)
+        memberButton.textContent = `${m.nickname} (${fingerprint(m).slice(0, 9)}${m.verified ? ' ✓' : ''})`
+        span.appendChild(memberButton)
+
+        if (!m.verified) {
+          span.appendChild(document.createTextNode(' '))
+          const verifyButton = document.createElement('button')
+          verifyButton.dataset.verifyId = String(m.shortId)
+          verifyButton.textContent = 'Verify'
+          span.appendChild(verifyButton)
+        }
+
+        rosterEl.appendChild(span)
+        rosterEl.appendChild(document.createTextNode(' '))
+      }
+
+      const groupButton = document.createElement('button')
+      groupButton.dataset.shortId = 'group'
+      groupButton.textContent = 'Group room'
+      rosterEl.appendChild(groupButton)
     }, 500)
 
     rosterEl.addEventListener('click', (event) => {
