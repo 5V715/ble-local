@@ -559,7 +559,7 @@ git commit -m "feat: add identity manager with IndexedDB-persisted keypairs"
   - `encodeChunk(header: FrameHeader, payload: Uint8Array): Uint8Array`
   - `decodeChunk(bytes: Uint8Array): DecodedChunk`
   - `buildChunks(header: Omit<FrameHeader, 'chunkIndex' | 'chunkCount'>, fullPayload: Uint8Array, maxChunkPayloadSize: number): Uint8Array[]`
-  - `class FrameReassembler { addChunk(chunk: DecodedChunk): { msgType: MessageType; senderShortId: number; recipientShortId: number; seq: number; payload: Uint8Array } | null; sweep(nowMs: number, maxAgeMs: number): void }`
+  - `class FrameReassembler { addChunk(chunk: DecodedChunk, nowMs?: number): { msgType: MessageType; senderShortId: number; recipientShortId: number; seq: number; payload: Uint8Array } | null; sweep(nowMs: number, maxAgeMs: number): void }` — `nowMs` defaults to `0`; a caller that uses `sweep()` with real wall-clock time MUST also pass a real `nowMs` (e.g. `Date.now()`) to every `addChunk` call, or every pending reassembly will appear infinitely old on the next sweep. Task 9's `ChatController` does this correctly (`addChunk(chunk, Date.now())` and `sweep(Date.now(), ...)`) — any other future caller must do the same.
 
 - [ ] **Step 1: Write failing tests**
 
