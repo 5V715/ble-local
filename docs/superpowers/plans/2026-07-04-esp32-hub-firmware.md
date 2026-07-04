@@ -13,6 +13,7 @@
 - Board: `esp32dev` (ESP32 DevKit classic), framework `arduino`, library `h2zero/NimBLE-Arduino@^2.1.0` (verified working at 2.5.0 in this environment; this version range guarantees the per-connection `notify(value, length, connHandle)` overload used throughout this plan — that overload was introduced in NimBLE-Arduino 2.0.0).
 - NimBLE-Arduino 2.x callback signatures (verified against the library's own docs, not assumed): `void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo)`, `void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason)`, `void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo)`. `NimBLEConnInfo::getConnHandle()` returns `uint16_t`. `NimBLECharacteristic::getValue()` returns a `NimBLEAttValue`, which exposes `.data()` (returns `const uint8_t*`) and `.length()` (if `.length()` doesn't compile against the installed version, `.size()` is the documented alternative — try that instead, don't guess further).
 - Advertising does **not** auto-resume after a disconnect in NimBLE-Arduino 2.x — resuming it (only when the table had been full) is this firmware's explicit responsibility, not a library default.
+- Call `server->start()` (on the `NimBLEServer*`), not `service->start()` — `NimBLEService::start()` is deprecated in 2.x and is a no-op ("services are started when the server starts," per the library's 1.x-to-2.x migration guide). Calling the deprecated method compiles but never actually activates the service, which would be a silent functional bug, not just a warning.
 - GATT UUIDs and sentinel byte values must exactly match `src/transport/ble-protocol.ts` on the `main` branch of this repo:
   - `HUB_SERVICE_UUID = "7b4a1000-8a2b-4c3d-9e8f-1123456789ab"`
   - `INBOX_CHARACTERISTIC_UUID = "7b4a1001-8a2b-4c3d-9e8f-1123456789ab"`
@@ -179,7 +180,7 @@ void setup() {
   service->createCharacteristic(INBOX_CHARACTERISTIC_UUID, NIMBLE_PROPERTY::WRITE);
   outboxCharacteristic = service->createCharacteristic(OUTBOX_CHARACTERISTIC_UUID, NIMBLE_PROPERTY::NOTIFY);
 
-  service->start();
+  server->start();
 
   NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
   advertising->addServiceUUID(HUB_SERVICE_UUID);
@@ -431,7 +432,7 @@ void setup() {
   service->createCharacteristic(INBOX_CHARACTERISTIC_UUID, NIMBLE_PROPERTY::WRITE);
   outboxCharacteristic = service->createCharacteristic(OUTBOX_CHARACTERISTIC_UUID, NIMBLE_PROPERTY::NOTIFY);
 
-  service->start();
+  server->start();
 
   NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
   advertising->addServiceUUID(HUB_SERVICE_UUID);
@@ -637,7 +638,7 @@ void setup() {
   service->createCharacteristic(INBOX_CHARACTERISTIC_UUID, NIMBLE_PROPERTY::WRITE);
   outboxCharacteristic = service->createCharacteristic(OUTBOX_CHARACTERISTIC_UUID, NIMBLE_PROPERTY::NOTIFY);
 
-  service->start();
+  server->start();
 
   NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
   advertising->addServiceUUID(HUB_SERVICE_UUID);
@@ -817,7 +818,7 @@ void setup() {
 
   outboxCharacteristic = service->createCharacteristic(OUTBOX_CHARACTERISTIC_UUID, NIMBLE_PROPERTY::NOTIFY);
 
-  service->start();
+  server->start();
 
   NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
   advertising->addServiceUUID(HUB_SERVICE_UUID);
