@@ -1911,8 +1911,19 @@ function makeIdentity(nickname: string): Identity {
   return { nickname, signPublicKey: signing.publicKey, signPrivateKey: signing.privateKey, dhPublicKey: dh.publicKey, dhPrivateKey: dh.privateKey }
 }
 
-async function wait(ms = 80) {
-  await new Promise((r) => setTimeout(r, ms))
+// Polls instead of sleeping a fixed duration — under CPU contention (e.g. the
+// full suite's default parallel test pool), the real WebCrypto operations
+// this chain triggers (AES-GCM, ECDH, Ed25519) can take longer than any fixed
+// delay would reliably cover, causing intermittent failures. Polling has no
+// such ceiling.
+async function waitUntil(predicate: () => boolean, timeoutMs = 3000, intervalMs = 20): Promise<void> {
+  const start = Date.now()
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error('waitUntil: timed out waiting for condition')
+    }
+    await new Promise((r) => setTimeout(r, intervalMs))
+  }
 }
 
 describe('ChatController', () => {
@@ -1945,12 +1956,12 @@ describe('ChatController', () => {
     bob.onMessage((m) => bobMessages.push(m.text))
 
     await bob.start()
-    await wait() // presence exchange + key package delivery
+    await waitUntil(() => bobGroupKey.hasRoomKey()) // presence exchange + key package delivery
 
     expect(bobGroupKey.hasRoomKey()).toBe(true)
 
     await alice.sendGroupMessage('hello room')
-    await wait()
+    await waitUntil(() => bobMessages.includes('hello room'))
 
     expect(bobMessages).toContain('hello room')
   })
@@ -1961,7 +1972,8 @@ describe('ChatController', () => {
     const aliceIdentity = makeIdentity('alice')
     const aliceTransport = new MockHubTransport(room)
     transports.push(aliceTransport)
-    const alice = new ChatController(aliceTransport, aliceIdentity, new RosterManager(), new GroupKeyManager())
+    const aliceRoster = new RosterManager()
+    const alice = new ChatController(aliceTransport, aliceIdentity, aliceRoster, new GroupKeyManager())
     await alice.start()
 
     const bobIdentity = makeIdentity('bob')
@@ -1980,11 +1992,11 @@ describe('ChatController', () => {
     carol.onMessage((m) => carolMessages.push(m.text))
     await carol.start()
 
-    await wait()
-
     const bobShortId = bobTransport.myShortId!
+    await waitUntil(() => aliceRoster.getMember(bobShortId) !== undefined)
+
     await alice.sendDirectMessage(bobShortId, 'psst just you')
-    await wait()
+    await waitUntil(() => bobMessages.includes('psst just you'))
 
     expect(bobMessages).toContain('psst just you')
     expect(carolMessages).not.toContain('psst just you')
@@ -2038,7 +2050,17 @@ export class ChatController {
 
   async start(): Promise<void> {
     this.transport.onMemberList((ids) => this.roster.onMemberList(ids))
-    this.transport.onMemberJoined((id) => this.roster.onMemberJoined(id))
+    // Re-announce our own presence whenever a new peer joins. BroadcastChannel
+    // (and, in general, any transport with no message replay) has no history,
+    // so a peer that joins after we already broadcast our presence would
+    // otherwise never learn our identity (nickname/signing key/DH key) — and
+    // without that, it can't verify a KEY_PACKAGE or DIRECT_MESSAGE we later
+    // sign and send to it. This was caught by Task 9's own integration test
+    // failing, not by inspection of Tasks 6-8 in isolation.
+    this.transport.onMemberJoined((id) => {
+      this.roster.onMemberJoined(id)
+      void this.broadcastPresence()
+    })
     this.transport.onMemberLeft((id) => this.roster.onMemberLeft(id))
     this.transport.onFrame((bytes) => this.handleIncomingBytes(bytes))
 
