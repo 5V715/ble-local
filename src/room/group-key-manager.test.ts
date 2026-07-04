@@ -141,6 +141,9 @@ describe('GroupKeyManager', () => {
     expect(bobKeys.hasRoomKey()).toBe(false)
     expect(bobKeys.getRoomKey()).toBeNull()
 
+    // Verify pendingRawKey was not set (indirectly by checking buildKeyPackageFor throws)
+    await expect(bobKeys.buildKeyPackageFor(bob, alice.dhPublicKey)).rejects.toThrow('no room key material')
+
     // Clean up the spy
     importRoomKeySpy.mockRestore()
   })
