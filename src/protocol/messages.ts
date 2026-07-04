@@ -1,7 +1,12 @@
 import { sign, verify } from '../crypto/crypto-engine'
 
 function toBase64(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes))
+  const CHUNK_SIZE = 0x8000
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK_SIZE))
+  }
+  return btoa(binary)
 }
 
 function fromBase64(value: string): Uint8Array {

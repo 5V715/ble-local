@@ -73,4 +73,18 @@ describe('chat payload messages', () => {
     expect(decoded.valid).toBe(true)
     expect(decoded.ciphertext).toEqual(ciphertext)
   })
+
+  it('round-trips and verifies with large ciphertext (regression test for toBase64 stack overflow)', () => {
+    const sender = generateSigningKeyPair()
+    // Build a large ciphertext by combining multiple random blocks
+    const ciphertext = new Uint8Array(200000)
+    for (let i = 0; i < ciphertext.length; i += 65536) {
+      const chunk = crypto.getRandomValues(new Uint8Array(Math.min(65536, ciphertext.length - i)))
+      ciphertext.set(chunk, i)
+    }
+    const bytes = encodeChatPayload({ ciphertext, signPrivateKey: sender.privateKey })
+    const decoded = decodeChatPayload(bytes, sender.publicKey)
+    expect(decoded.valid).toBe(true)
+    expect(decoded.ciphertext).toEqual(ciphertext)
+  })
 })
