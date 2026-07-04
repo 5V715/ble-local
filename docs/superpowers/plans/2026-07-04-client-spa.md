@@ -948,6 +948,15 @@ describe('chat payload messages', () => {
     expect(decoded.valid).toBe(true)
     expect(decoded.ciphertext).toEqual(ciphertext)
   })
+
+  it('round-trips and verifies with a large ciphertext (regression test for toBase64 stack overflow)', () => {
+    const sender = generateSigningKeyPair()
+    const ciphertext = crypto.getRandomValues(new Uint8Array(200_000))
+    const bytes = encodeChatPayload({ ciphertext, signPrivateKey: sender.privateKey })
+    const decoded = decodeChatPayload(bytes, sender.publicKey)
+    expect(decoded.valid).toBe(true)
+    expect(decoded.ciphertext).toEqual(ciphertext)
+  })
 })
 ```
 
@@ -965,7 +974,16 @@ Expected: FAIL — `messages.ts` does not exist yet.
 import { sign, verify } from '../crypto/crypto-engine'
 
 function toBase64(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes))
+  // Batch into fixed-size chunks rather than spreading the whole array as
+  // call arguments — String.fromCharCode(...bytes) throws "Maximum call
+  // stack size exceeded" once bytes is large enough (tens of thousands of
+  // bytes, engine-dependent).
+  const CHUNK_SIZE = 0x8000
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK_SIZE))
+  }
+  return btoa(binary)
 }
 
 function fromBase64(value: string): Uint8Array {
@@ -1089,7 +1107,7 @@ export function decodeChatPayload(bytes: Uint8Array, senderSignPublicKey: Uint8A
 npx vitest run src/protocol/messages.test.ts
 ```
 
-Expected: PASS, 5 tests passed.
+Expected: PASS, 6 tests passed.
 
 - [ ] **Step 5: Commit**
 
