@@ -60,11 +60,12 @@ export async function loadOrCreateIdentity(factory: IDBFactory, nickname: string
 }
 
 export function fingerprint(identity: Pick<Identity, 'signPublicKey' | 'dhPublicKey'>): string {
-  const combined = new Uint8Array(identity.signPublicKey.length + identity.dhPublicKey.length)
-  combined.set(identity.signPublicKey, 0)
-  combined.set(identity.dhPublicKey, identity.signPublicKey.length)
-  let hex = ''
-  for (const byte of combined) hex += byte.toString(16).padStart(2, '0')
-  // Group into 4-character blocks for a Signal-style "safety number" look.
-  return (hex.match(/.{1,4}/g) ?? []).slice(0, 12).join(' ')
+  const toHexBlocks = (bytes: Uint8Array, blockCount: number): string[] => {
+    let hex = ''
+    for (const byte of bytes) hex += byte.toString(16).padStart(2, '0')
+    return (hex.match(/.{1,4}/g) ?? []).slice(0, blockCount)
+  }
+  const signBlocks = toHexBlocks(identity.signPublicKey, 6)
+  const dhBlocks = toHexBlocks(identity.dhPublicKey, 6)
+  return [...signBlocks, ...dhBlocks].join(' ')
 }

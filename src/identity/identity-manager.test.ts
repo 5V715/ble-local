@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
-import { loadOrCreateIdentity, fingerprint } from './identity-manager'
+import { loadOrCreateIdentity, fingerprint, type Identity } from './identity-manager'
+import { generateSigningKeyPair, generateDhKeyPair } from '../crypto/crypto-engine'
 
 describe('loadOrCreateIdentity', () => {
   it('creates a new identity with the given nickname', async () => {
@@ -33,5 +34,26 @@ describe('fingerprint', () => {
     const a = await loadOrCreateIdentity(dbA, 'alice')
     const b = await loadOrCreateIdentity(dbB, 'bob')
     expect(fingerprint(a)).not.toBe(fingerprint(b))
+  })
+
+  it('differs when only dhPublicKey differs (regression: both keys must be included)', () => {
+    // Create two identities with the same signing key but different DH keys.
+    // This is a regression test for the bug where fingerprint() only included
+    // the signing key and ignored the DH key.
+    const signing = generateSigningKeyPair()
+    const dh1 = generateDhKeyPair()
+    const dh2 = generateDhKeyPair()
+
+    const identity1: Pick<Identity, 'signPublicKey' | 'dhPublicKey'> = {
+      signPublicKey: signing.publicKey,
+      dhPublicKey: dh1.publicKey
+    }
+
+    const identity2: Pick<Identity, 'signPublicKey' | 'dhPublicKey'> = {
+      signPublicKey: signing.publicKey,
+      dhPublicKey: dh2.publicKey
+    }
+
+    expect(fingerprint(identity1)).not.toBe(fingerprint(identity2))
   })
 })
