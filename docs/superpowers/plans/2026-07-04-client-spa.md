@@ -1227,6 +1227,36 @@ describe('MockHubTransport', () => {
     expect(a.myShortId).toBeNull()
   })
 
+  it('gives a lone connecting transport an empty member list, not containing its own id', async () => {
+    const room = crypto.randomUUID()
+    const a = make(room)
+
+    const lists: number[][] = []
+    a.onMemberList((ids) => lists.push(ids))
+
+    await a.connect()
+
+    expect(lists.length).toBeGreaterThan(0)
+    expect(lists[0]).toEqual([])
+    expect(lists[0]).not.toContain(a.myShortId)
+  })
+
+  it('gives a second joiner a member list containing the first member but not its own id', async () => {
+    const room = crypto.randomUUID()
+    const a = make(room)
+    const b = make(room)
+    await a.connect()
+
+    const lists: number[][] = []
+    b.onMemberList((ids) => lists.push(ids))
+
+    await b.connect()
+
+    expect(lists.length).toBeGreaterThan(0)
+    expect(lists[0]).toContain(a.myShortId)
+    expect(lists[0]).not.toContain(b.myShortId)
+  })
+
   it('treats reconnecting the same instance as a new peer join', async () => {
     const room = crypto.randomUUID()
     const a = make(room)
@@ -1328,8 +1358,12 @@ export class MockHubTransport implements Transport {
 
     const candidate = this.pickNextShortId()
     this._myShortId = candidate
-    this.knownShortIds.add(candidate)
+    // Fire the member-list snapshot BEFORE adding our own candidate id to
+    // knownShortIds — a member list represents OTHER members, not ourselves.
+    // (Adding self first would make a lone joiner see itself in its own
+    // member list, breaking any isEmpty()-style bootstrap check downstream.)
     this.listCbs.forEach((cb) => cb([...this.knownShortIds]))
+    this.knownShortIds.add(candidate)
     this.broadcast({ kind: 'announce', instanceId: this.instanceId, shortId: candidate })
   }
 
@@ -1412,7 +1446,7 @@ export class MockHubTransport implements Transport {
 npx vitest run src/transport/mock-hub-transport.test.ts
 ```
 
-Expected: PASS, 7 tests passed.
+Expected: PASS, 9 tests passed.
 
 - [ ] **Step 6: Commit**
 
@@ -1942,8 +1976,7 @@ describe('ChatController', () => {
     const aliceRoster = new RosterManager()
     const aliceGroupKey = new GroupKeyManager()
     const alice = new ChatController(aliceTransport, aliceIdentity, aliceRoster, aliceGroupKey)
-    await alice.start()
-    await aliceGroupKey.mintNewRoomKey()
+    await alice.start() // alice is first in the room, so start() mints the room key via the real bootstrap gate
 
     const bobIdentity = makeIdentity('bob')
     const bobTransport = new MockHubTransport(room)
@@ -2065,6 +2098,13 @@ export class ChatController {
     this.transport.onFrame((bytes) => this.handleIncomingBytes(bytes))
 
     await this.transport.connect()
+    // If nobody else is in the room yet, we're the first member: mint the
+    // room key ourselves. Doing this here (not in the UI layer) means this
+    // bootstrap decision is exercised by this class's own tests instead of
+    // being bypassed by a caller that mints unconditionally.
+    if (this.roster.isEmpty()) {
+      await this.groupKey.mintNewRoomKey()
+    }
     await this.broadcastPresence()
 
     setInterval(() => this.reassembler.sweep(Date.now(), REASSEMBLY_TIMEOUT_MS), REASSEMBLY_SWEEP_INTERVAL_MS)
@@ -2245,6 +2285,7 @@ export async function mountApp(root: HTMLElement): Promise<void> {
       <button id="join">Join</button>
     </div>
     <div id="chat" hidden>
+      <div id="my-fingerprint"></div>
       <div id="roster"></div>
       <div id="thread-label"></div>
       <div id="messages"></div>
@@ -2260,6 +2301,7 @@ export async function mountApp(root: HTMLElement): Promise<void> {
   const rosterEl = root.querySelector<HTMLDivElement>('#roster')!
   const threadLabelEl = root.querySelector<HTMLDivElement>('#thread-label')!
   const messagesEl = root.querySelector<HTMLDivElement>('#messages')!
+  const myFingerprintEl = root.querySelector<HTMLDivElement>('#my-fingerprint')!
   const nicknameInput = root.querySelector<HTMLInputElement>('#nickname')!
   const roomInput = root.querySelector<HTMLInputElement>('#room')!
   const joinButton = root.querySelector<HTMLButtonElement>('#join')!
@@ -2286,6 +2328,7 @@ export async function mountApp(root: HTMLElement): Promise<void> {
     }
 
     const identity = await loadOrCreateIdentity(indexedDB, nickname)
+    myFingerprintEl.textContent = `Your safety number: ${fingerprint(identity)}`
     const transport = new MockHubTransport(room)
     const roster = new RosterManager()
     const groupKey = new GroupKeyManager()
@@ -2297,9 +2340,6 @@ export async function mountApp(root: HTMLElement): Promise<void> {
     })
 
     await controller.start()
-    if (roster.isEmpty()) {
-      await groupKey.mintNewRoomKey()
-    }
 
     setupEl.hidden = true
     chatEl.hidden = false
@@ -2316,7 +2356,7 @@ export async function mountApp(root: HTMLElement): Promise<void> {
 
         const memberButton = document.createElement('button')
         memberButton.dataset.shortId = String(m.shortId)
-        memberButton.textContent = `${m.nickname} (${fingerprint(m).slice(0, 9)}${m.verified ? ' ✓' : ''})`
+        memberButton.textContent = `${m.nickname} (${fingerprint(m)}${m.verified ? ' ✓' : ''})`
         span.appendChild(memberButton)
 
         if (!m.verified) {
@@ -2787,6 +2827,7 @@ export async function mountApp(root: HTMLElement): Promise<void> {
     </div>
     <div id="chat" hidden>
       <div id="connection-status"></div>
+      <div id="my-fingerprint"></div>
       <div id="roster"></div>
       <div id="thread-label"></div>
       <div id="messages"></div>
@@ -2803,6 +2844,7 @@ export async function mountApp(root: HTMLElement): Promise<void> {
   const threadLabelEl = root.querySelector<HTMLDivElement>('#thread-label')!
   const messagesEl = root.querySelector<HTMLDivElement>('#messages')!
   const connectionStatusEl = root.querySelector<HTMLDivElement>('#connection-status')!
+  const myFingerprintEl = root.querySelector<HTMLDivElement>('#my-fingerprint')!
   const nicknameInput = root.querySelector<HTMLInputElement>('#nickname')!
   const modeSelect = root.querySelector<HTMLSelectElement>('#mode')!
   const roomLabel = root.querySelector<HTMLLabelElement>('#room-label')!
@@ -2858,6 +2900,7 @@ export async function mountApp(root: HTMLElement): Promise<void> {
     }
 
     const identity = await loadOrCreateIdentity(indexedDB, nickname)
+    myFingerprintEl.textContent = `Your safety number: ${fingerprint(identity)}`
     const roster = new RosterManager()
     const groupKey = new GroupKeyManager()
     const controller = new ChatController(transport, identity, roster, groupKey)
@@ -2875,9 +2918,6 @@ export async function mountApp(root: HTMLElement): Promise<void> {
       joinButton.disabled = false
       return
     }
-    if (roster.isEmpty()) {
-      await groupKey.mintNewRoomKey()
-    }
 
     setupEl.hidden = true
     chatEl.hidden = false
@@ -2894,7 +2934,7 @@ export async function mountApp(root: HTMLElement): Promise<void> {
 
         const memberButton = document.createElement('button')
         memberButton.dataset.shortId = String(m.shortId)
-        memberButton.textContent = `${m.nickname} (${fingerprint(m).slice(0, 9)}${m.verified ? ' ✓' : ''})`
+        memberButton.textContent = `${m.nickname} (${fingerprint(m)}${m.verified ? ' ✓' : ''})`
         span.appendChild(memberButton)
 
         if (!m.verified) {
@@ -3005,6 +3045,7 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
+      - run: npx tsc --noEmit
       - run: npm test
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
