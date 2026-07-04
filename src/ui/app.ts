@@ -1,5 +1,7 @@
 import { ChatController, type IncomingChatMessage } from '../chat/chat-controller'
+import type { Transport } from '../transport/transport'
 import { MockHubTransport } from '../transport/mock-hub-transport'
+import { WebBluetoothTransport, isWebBluetoothSupported } from '../transport/web-bluetooth-transport'
 import { RosterManager } from '../room/roster-manager'
 import { GroupKeyManager } from '../room/group-key-manager'
 import { loadOrCreateIdentity, fingerprint } from '../identity/identity-manager'
@@ -8,10 +10,19 @@ export async function mountApp(root: HTMLElement): Promise<void> {
   root.innerHTML = `
     <div id="setup">
       <label>Nickname <input id="nickname" placeholder="alice" /></label>
-      <label>Room name <input id="room" placeholder="living-room" /></label>
+      <label>
+        Connection
+        <select id="mode">
+          <option value="mock">Mock room (same-browser testing)</option>
+          <option value="bluetooth">Bluetooth hub</option>
+        </select>
+      </label>
+      <label id="room-label">Room name <input id="room" placeholder="living-room" /></label>
+      <div id="setup-error" style="color: red"></div>
       <button id="join">Join</button>
     </div>
     <div id="chat" hidden>
+      <div id="connection-status"></div>
       <div id="roster"></div>
       <div id="thread-label"></div>
       <div id="messages"></div>
@@ -27,8 +38,12 @@ export async function mountApp(root: HTMLElement): Promise<void> {
   const rosterEl = root.querySelector<HTMLDivElement>('#roster')!
   const threadLabelEl = root.querySelector<HTMLDivElement>('#thread-label')!
   const messagesEl = root.querySelector<HTMLDivElement>('#messages')!
+  const connectionStatusEl = root.querySelector<HTMLDivElement>('#connection-status')!
   const nicknameInput = root.querySelector<HTMLInputElement>('#nickname')!
+  const modeSelect = root.querySelector<HTMLSelectElement>('#mode')!
+  const roomLabel = root.querySelector<HTMLLabelElement>('#room-label')!
   const roomInput = root.querySelector<HTMLInputElement>('#room')!
+  const setupError = root.querySelector<HTMLDivElement>('#setup-error')!
   const joinButton = root.querySelector<HTMLButtonElement>('#join')!
   const sendForm = root.querySelector<HTMLFormElement>('#send-form')!
   const messageInput = root.querySelector<HTMLInputElement>('#message-input')!
@@ -36,21 +51,49 @@ export async function mountApp(root: HTMLElement): Promise<void> {
   let activeThreadShortId: number | null = null // null = group room
   let joinInProgress = false
 
+  modeSelect.addEventListener('change', () => {
+    roomLabel.hidden = modeSelect.value === 'bluetooth'
+  })
+
   joinButton.addEventListener('click', async () => {
+    // Guard against a second click starting a second controller/transport
+    // before the first join's awaits resolve.
     if (joinInProgress) return
     joinInProgress = true
     joinButton.disabled = true
 
     const nickname = nicknameInput.value.trim()
-    const room = roomInput.value.trim()
-    if (!nickname || !room) {
+    if (!nickname) {
       joinInProgress = false
       joinButton.disabled = false
       return
     }
+    setupError.textContent = ''
+
+    let transport: Transport
+    if (modeSelect.value === 'bluetooth') {
+      if (!isWebBluetoothSupported()) {
+        setupError.textContent = 'This browser does not support Web Bluetooth. Use Chrome or a Chromium-based browser.'
+        joinInProgress = false
+        joinButton.disabled = false
+        return
+      }
+      const bleTransport = new WebBluetoothTransport()
+      bleTransport.onConnectionStateChange((state) => {
+        connectionStatusEl.textContent = state === 'connected' ? '' : `Bluetooth: ${state}…`
+      })
+      transport = bleTransport
+    } else {
+      const room = roomInput.value.trim()
+      if (!room) {
+        joinInProgress = false
+        joinButton.disabled = false
+        return
+      }
+      transport = new MockHubTransport(room)
+    }
 
     const identity = await loadOrCreateIdentity(indexedDB, nickname)
-    const transport = new MockHubTransport(room)
     const roster = new RosterManager()
     const groupKey = new GroupKeyManager()
     const controller = new ChatController(transport, identity, roster, groupKey)
@@ -60,7 +103,14 @@ export async function mountApp(root: HTMLElement): Promise<void> {
       if (shouldShow) appendMessage(`${msg.nickname}: ${msg.text}`)
     })
 
-    await controller.start()
+    try {
+      await controller.start()
+    } catch (error) {
+      setupError.textContent = error instanceof Error ? error.message : 'Failed to connect.'
+      joinInProgress = false
+      joinButton.disabled = false
+      return
+    }
     if (roster.isEmpty()) {
       await groupKey.mintNewRoomKey()
     }
@@ -70,6 +120,9 @@ export async function mountApp(root: HTMLElement): Promise<void> {
     renderThreadLabel()
 
     setInterval(() => {
+      // Built with createElement/textContent, not innerHTML — nickname comes
+      // from a peer's own PRESENCE broadcast (attacker-controlled) and must
+      // never be parsed as markup.
       rosterEl.replaceChildren()
 
       for (const m of roster.getAllMembers()) {
