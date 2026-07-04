@@ -1,1 +1,4 @@
-console.log('BLE local chat starting…')
+import { mountApp } from './ui/app'
+
+const root = document.querySelector<HTMLDivElement>('#app')!
+mountApp(root)
