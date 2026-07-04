@@ -23,6 +23,7 @@ export async function mountApp(root: HTMLElement): Promise<void> {
     </div>
     <div id="chat" hidden>
       <div id="connection-status"></div>
+      <div id="my-fingerprint"></div>
       <div id="roster"></div>
       <div id="thread-label"></div>
       <div id="messages"></div>
@@ -39,6 +40,7 @@ export async function mountApp(root: HTMLElement): Promise<void> {
   const threadLabelEl = root.querySelector<HTMLDivElement>('#thread-label')!
   const messagesEl = root.querySelector<HTMLDivElement>('#messages')!
   const connectionStatusEl = root.querySelector<HTMLDivElement>('#connection-status')!
+  const myFingerprintEl = root.querySelector<HTMLDivElement>('#my-fingerprint')!
   const nicknameInput = root.querySelector<HTMLInputElement>('#nickname')!
   const modeSelect = root.querySelector<HTMLSelectElement>('#mode')!
   const roomLabel = root.querySelector<HTMLLabelElement>('#room-label')!
@@ -94,6 +96,7 @@ export async function mountApp(root: HTMLElement): Promise<void> {
     }
 
     const identity = await loadOrCreateIdentity(indexedDB, nickname)
+    myFingerprintEl.textContent = `Your safety number: ${fingerprint(identity)}`
     const roster = new RosterManager()
     const groupKey = new GroupKeyManager()
     const controller = new ChatController(transport, identity, roster, groupKey)
@@ -127,7 +130,7 @@ export async function mountApp(root: HTMLElement): Promise<void> {
 
         const memberButton = document.createElement('button')
         memberButton.dataset.shortId = String(m.shortId)
-        memberButton.textContent = `${m.nickname} (${fingerprint(m).slice(0, 9)}${m.verified ? ' ✓' : ''})`
+        memberButton.textContent = `${m.nickname} (${fingerprint(m)}${m.verified ? ' ✓' : ''})`
         span.appendChild(memberButton)
 
         if (!m.verified) {
