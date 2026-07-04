@@ -32,6 +32,7 @@
 ### Task 1: PlatformIO project scaffolding + shared protocol constants
 
 **Files:**
+- Create: `firmware/.gitignore`
 - Create: `firmware/platformio.ini`
 - Create: `firmware/src/ble_protocol.h`
 - Create: `firmware/src/main.cpp`
@@ -54,7 +55,15 @@ pipx install platformio
 
 Then re-run `pio --version` to confirm.
 
-- [ ] **Step 2: Create `firmware/platformio.ini`**
+- [ ] **Step 2: Create `firmware/.gitignore`**
+
+```
+.pio
+```
+
+PlatformIO's build directory (`.pio/`) contains thousands of compiled object files and downloaded toolchain/library artifacts — it must never be tracked in git. Create this file **before** any `git add firmware` step below, or the build directory will be swept into the commit.
+
+- [ ] **Step 3: Create `firmware/platformio.ini`**
 
 ```ini
 [env:esp32dev]
@@ -65,7 +74,7 @@ lib_deps = h2zero/NimBLE-Arduino@^2.1.0
 monitor_speed = 115200
 ```
 
-- [ ] **Step 3: Create `firmware/src/ble_protocol.h`**
+- [ ] **Step 4: Create `firmware/src/ble_protocol.h`**
 
 ```cpp
 #pragma once
@@ -103,7 +112,7 @@ constexpr uint8_t MAX_CONNECTIONS = 7;
 constexpr int16_t INVALID_SHORT_ID = -1;
 ```
 
-- [ ] **Step 4: Create `firmware/src/main.cpp`**
+- [ ] **Step 5: Create `firmware/src/main.cpp`**
 
 ```cpp
 #include <Arduino.h>
@@ -122,7 +131,7 @@ void loop() {
 }
 ```
 
-- [ ] **Step 5: Compile check**
+- [ ] **Step 6: Compile check**
 
 ```bash
 cd firmware && pio run
@@ -130,7 +139,7 @@ cd firmware && pio run
 
 Expected: `[SUCCESS]` — PlatformIO will download the `espressif32` platform and `NimBLE-Arduino` library on first run (a couple of minutes); subsequent runs are fast. If the build fails with `ModuleNotFoundError: No module named 'intelhex'`, run `pipx inject platformio intelhex` and re-run.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add firmware
