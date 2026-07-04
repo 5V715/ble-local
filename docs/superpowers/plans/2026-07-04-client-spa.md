@@ -1443,9 +1443,10 @@ git commit -m "feat: add Transport interface and BroadcastChannel-based mock hub
 
 ```ts
 // src/room/group-key-manager.test.ts
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { GroupKeyManager } from './group-key-manager'
 import { generateSigningKeyPair, generateDhKeyPair, encrypt, decrypt } from '../crypto/crypto-engine'
+import * as cryptoEngine from '../crypto/crypto-engine'
 import type { Identity } from '../identity/identity-manager'
 
 function makeIdentity(nickname: string): Identity {
@@ -1553,11 +1554,38 @@ describe('GroupKeyManager', () => {
     const accepted2 = await bobKeys.acceptKeyPackage(carolPackage, carol.signPublicKey, bob, carol.dhPublicKey)
     expect(accepted2).toBe(true)
 
+    // Capture Carol's room key before attempting the stale acceptance below.
+    const carolRoomKey = bobKeys.getRoomKey()
+
     // Now try to send Alice's original (stale-epoch) package to Bob again.
     // The signature is valid, but the epoch is now stale.
     const accepted3 = await bobKeys.acceptKeyPackage(alicePackage, alice.signPublicKey, bob, alice.dhPublicKey)
     expect(accepted3).toBe(false)
+    // Room key must still be the same object as before the rejected call —
+    // comparing getRoomKey() to itself would prove nothing, so compare
+    // against the reference captured beforehand.
+    expect(bobKeys.getRoomKey()).toBe(carolRoomKey)
     expect(bobKeys.hasRoomKey()).toBe(true)
+  })
+
+  it('does not mutate state partially if importRoomKey throws after successful decrypt', async () => {
+    const alice = makeIdentity('alice')
+    const bob = makeIdentity('bob')
+
+    const aliceKeys = new GroupKeyManager()
+    await aliceKeys.mintNewRoomKey()
+    const alicePackage = await aliceKeys.buildKeyPackageFor(alice, bob.dhPublicKey)
+
+    const importRoomKeySpy = vi.spyOn(cryptoEngine, 'importRoomKey').mockRejectedValue(new Error('importRoomKey failed'))
+
+    const bobKeys = new GroupKeyManager()
+    const accepted = await bobKeys.acceptKeyPackage(alicePackage, alice.signPublicKey, bob, alice.dhPublicKey)
+
+    expect(accepted).toBe(false)
+    expect(bobKeys.hasRoomKey()).toBe(false)
+    expect(bobKeys.getRoomKey()).toBeNull()
+
+    importRoomKeySpy.mockRestore()
   })
 })
 ```
@@ -1626,12 +1654,17 @@ export class GroupKeyManager {
     if (this.roomKey && decoded.epoch <= this.epoch) return false
 
     try {
+      // Every fallible step (including importRoomKey) must succeed before
+      // any of pendingRawKey/roomKey/epoch is touched — otherwise a failure
+      // partway through could leave these three fields in an inconsistent
+      // state (e.g. pendingRawKey updated but roomKey/epoch still old).
       const sharedSecret = deriveSharedSecret(myIdentity.dhPrivateKey, senderDhPublicKey)
       const wrappingKey = await deriveAesKey(sharedSecret)
       const raw = await decrypt(wrappingKey, decoded.wrappedRoomKey)
+      const imported = await importRoomKey(raw)
 
       this.pendingRawKey = raw
-      this.roomKey = await importRoomKey(raw)
+      this.roomKey = imported
       this.epoch = decoded.epoch
       return true
     } catch {
@@ -1653,7 +1686,7 @@ export class GroupKeyManager {
 npx vitest run src/room/group-key-manager.test.ts
 ```
 
-Expected: PASS, 6 tests passed.
+Expected: PASS, 7 tests passed.
 
 - [ ] **Step 5: Commit**
 
