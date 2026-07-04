@@ -27,9 +27,9 @@ export function deriveSharedSecret(privateKey: Uint8Array, peerPublicKey: Uint8A
 const HKDF_INFO = new TextEncoder().encode('ble-local-chat')
 
 export async function deriveAesKey(sharedSecret: Uint8Array): Promise<CryptoKey> {
-  const keyMaterial = await crypto.subtle.importKey('raw', sharedSecret, 'HKDF', false, ['deriveKey'])
+  const keyMaterial = await crypto.subtle.importKey('raw', sharedSecret as BufferSource, 'HKDF', false, ['deriveKey'])
   return crypto.subtle.deriveKey(
-    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: HKDF_INFO },
+    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0) as BufferSource, info: HKDF_INFO as BufferSource },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
     false,
@@ -42,14 +42,14 @@ export function generateRoomKeyMaterial(): Uint8Array {
 }
 
 export function importRoomKey(raw: Uint8Array): Promise<CryptoKey> {
-  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
+  return crypto.subtle.importKey('raw', raw as BufferSource, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
 }
 
 const IV_LENGTH = 12
 
 export async function encrypt(key: CryptoKey, plaintext: Uint8Array): Promise<Uint8Array> {
   const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH))
-  const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext))
+  const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv as BufferSource }, key, plaintext as BufferSource))
   const out = new Uint8Array(IV_LENGTH + ciphertext.length)
   out.set(iv, 0)
   out.set(ciphertext, IV_LENGTH)
@@ -59,5 +59,5 @@ export async function encrypt(key: CryptoKey, plaintext: Uint8Array): Promise<Ui
 export async function decrypt(key: CryptoKey, data: Uint8Array): Promise<Uint8Array> {
   const iv = data.slice(0, IV_LENGTH)
   const ciphertext = data.slice(IV_LENGTH)
-  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext))
+  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv as BufferSource }, key, ciphertext as BufferSource))
 }
