@@ -13,6 +13,7 @@
     "@noble/curves": "^1"
   },
   "devDependencies": {
+    "fake-indexeddb": "^6.2.5",
     "typescript": "^5",
     "vite": "^5",
     "vitest": "^2"
