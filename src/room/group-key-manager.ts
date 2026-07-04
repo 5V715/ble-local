@@ -50,13 +50,19 @@ export class GroupKeyManager {
     if (!decoded.valid) return false
     if (this.roomKey && decoded.epoch <= this.epoch) return false
 
-    const sharedSecret = deriveSharedSecret(myIdentity.dhPrivateKey, senderDhPublicKey)
-    const wrappingKey = await deriveAesKey(sharedSecret)
-    const raw = await decrypt(wrappingKey, decoded.wrappedRoomKey)
+    try {
+      const sharedSecret = deriveSharedSecret(myIdentity.dhPrivateKey, senderDhPublicKey)
+      const wrappingKey = await deriveAesKey(sharedSecret)
+      const raw = await decrypt(wrappingKey, decoded.wrappedRoomKey)
 
-    this.pendingRawKey = raw
-    this.roomKey = await importRoomKey(raw)
-    this.epoch = decoded.epoch
-    return true
+      this.pendingRawKey = raw
+      this.roomKey = await importRoomKey(raw)
+      this.epoch = decoded.epoch
+      return true
+    } catch {
+      // Decrypt failed (mismatched DH key, tampered ciphertext, etc.)
+      // Leave state unchanged and return false
+      return false
+    }
   }
 }

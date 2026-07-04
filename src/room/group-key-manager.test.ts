@@ -59,4 +59,61 @@ describe('GroupKeyManager', () => {
     expect(accepted).toBe(false)
     expect(bobKeys.hasRoomKey()).toBe(false)
   })
+
+  it('rejects a key package with mismatched DH key (decrypt failure returns false, not throw)', async () => {
+    const alice = makeIdentity('alice')
+    const bob = makeIdentity('bob')
+    const carol = makeIdentity('carol')
+
+    const aliceKeys = new GroupKeyManager()
+    await aliceKeys.mintNewRoomKey()
+
+    // Alice builds a key package for Bob
+    const keyPackageBytes = await aliceKeys.buildKeyPackageFor(alice, bob.dhPublicKey)
+
+    // Bob tries to accept it, but passes Carol's DH public key instead of Alice's
+    // The signature will verify (Alice signed it), but decrypt will fail
+    const bobKeys = new GroupKeyManager()
+    const accepted = await bobKeys.acceptKeyPackage(
+      keyPackageBytes,
+      alice.signPublicKey,
+      bob,
+      carol.dhPublicKey // Wrong sender DH key!
+    )
+
+    expect(accepted).toBe(false)
+    expect(bobKeys.hasRoomKey()).toBe(false)
+  })
+
+  it('rejects a key package with stale epoch after accepting newer one', async () => {
+    const alice = makeIdentity('alice')
+    const bob = makeIdentity('bob')
+    const carol = makeIdentity('carol')
+
+    // Alice mints and sends to Bob
+    const aliceKeys = new GroupKeyManager()
+    await aliceKeys.mintNewRoomKey()
+    const alicePackage = await aliceKeys.buildKeyPackageFor(alice, bob.dhPublicKey)
+
+    const bobKeys = new GroupKeyManager()
+    const accepted1 = await bobKeys.acceptKeyPackage(alicePackage, alice.signPublicKey, bob, alice.dhPublicKey)
+    expect(accepted1).toBe(true)
+    expect(bobKeys.hasRoomKey()).toBe(true)
+
+    // Carol mints and sends to Bob (will have a later epoch due to time passing)
+    const carolKeys = new GroupKeyManager()
+    await carolKeys.mintNewRoomKey()
+    const carolPackage = await carolKeys.buildKeyPackageFor(carol, bob.dhPublicKey)
+
+    const accepted2 = await bobKeys.acceptKeyPackage(carolPackage, carol.signPublicKey, bob, carol.dhPublicKey)
+    expect(accepted2).toBe(true)
+
+    // Now try to send Alice's original (stale-epoch) package to Bob again
+    // The signature is valid, but the epoch is now stale
+    const accepted3 = await bobKeys.acceptKeyPackage(alicePackage, alice.signPublicKey, bob, alice.dhPublicKey)
+    expect(accepted3).toBe(false)
+    // Room key should remain unchanged (Carol's key)
+    expect(bobKeys.getRoomKey()).toBe(bobKeys.getRoomKey())
+    expect(bobKeys.hasRoomKey()).toBe(true)
+  })
 })
