@@ -1585,6 +1585,13 @@ describe('GroupKeyManager', () => {
     expect(bobKeys.hasRoomKey()).toBe(false)
     expect(bobKeys.getRoomKey()).toBeNull()
 
+    // hasRoomKey()/getRoomKey() alone wouldn't distinguish this from the
+    // pre-fix ordering — in this scenario roomKey is never set either way.
+    // pendingRawKey is private, so check its effect indirectly: it must
+    // still be null, or buildKeyPackageFor would proceed using a leaked,
+    // never-adopted key instead of throwing.
+    await expect(bobKeys.buildKeyPackageFor(bob, alice.dhPublicKey)).rejects.toThrow('no room key material')
+
     importRoomKeySpy.mockRestore()
   })
 })
