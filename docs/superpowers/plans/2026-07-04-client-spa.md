@@ -1217,6 +1217,32 @@ describe('MockHubTransport', () => {
 
     expect(left).toContain(bId)
   })
+
+  it('resets myShortId to null after disconnect', async () => {
+    const room = crypto.randomUUID()
+    const a = make(room)
+    await a.connect()
+    expect(a.myShortId).not.toBeNull()
+    await a.disconnect()
+    expect(a.myShortId).toBeNull()
+  })
+
+  it('treats reconnecting the same instance as a new peer join', async () => {
+    const room = crypto.randomUUID()
+    const a = make(room)
+    const b = make(room)
+    await a.connect()
+    await b.connect()
+
+    const joined: number[] = []
+    a.onMemberJoined((id) => joined.push(id))
+
+    await b.disconnect()
+    await b.connect()
+    await new Promise((r) => setTimeout(r, 50))
+
+    expect(joined).toContain(b.myShortId)
+  })
 })
 ```
 
@@ -1255,6 +1281,15 @@ import type { Transport } from './transport'
 // every id observed during that window.
 const DISCOVERY_WINDOW_MS = 50
 
+// Known limitation (accepted — this is a dev/testing-only simulator, not the
+// real BLE transport): if two or more instances call connect() genuinely
+// concurrently (not sequentially), they can all miss each other's queries
+// during their own discovery windows and pick the same short id. The real
+// hub firmware (a separate plan) assigns ids per BLE connection with no such
+// race. Realistic use of this mock — a human manually opening tabs and
+// clicking "join" one at a time — is inherently sequential, so this is not
+// fixed with a heavier collision-retry protocol here.
+
 type ControlMessage =
   | { kind: 'query' }
   | { kind: 'announce'; instanceId: string; shortId: number }
@@ -1263,7 +1298,7 @@ type ControlMessage =
 
 export class MockHubTransport implements Transport {
   private channel: BroadcastChannel | null = null
-  private instanceId = crypto.randomUUID()
+  private instanceId: string = ''
   private knownShortIds = new Set<number>()
   private knownPeerInstanceIds = new Set<string>()
   private _myShortId: number | null = null
@@ -1280,6 +1315,11 @@ export class MockHubTransport implements Transport {
   }
 
   async connect(): Promise<void> {
+    // Generated fresh per connect() (not once in the constructor) so that
+    // disconnecting and reconnecting the same instance looks like a genuinely
+    // new peer to others — which is correct: from a peer's perspective, a
+    // device that left and came back IS a new join event.
+    this.instanceId = crypto.randomUUID()
     this.channel = new BroadcastChannel(this.roomName)
     this.channel.addEventListener('message', this.handleMessage)
 
@@ -1297,6 +1337,7 @@ export class MockHubTransport implements Transport {
     if (this._myShortId !== null) {
       this.broadcast({ kind: 'left', shortId: this._myShortId })
     }
+    this._myShortId = null
     this.channel?.removeEventListener('message', this.handleMessage)
     this.channel?.close()
     this.channel = null
@@ -1371,7 +1412,7 @@ export class MockHubTransport implements Transport {
 npx vitest run src/transport/mock-hub-transport.test.ts
 ```
 
-Expected: PASS, 5 tests passed.
+Expected: PASS, 7 tests passed.
 
 - [ ] **Step 6: Commit**
 
