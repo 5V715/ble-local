@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Node >= 20 (needed for stable global `crypto.subtle` in Vitest's Node environment).
-- TypeScript strict mode (`"strict": true` in tsconfig).
+- TypeScript strict mode (`"strict": true` in tsconfig). Verify with `npx tsc --noEmit` after implementing each task — neither `npm test` (Vitest) nor `npm run build` (Vite) type-checks, so both can pass while strict-mode errors remain (e.g. `Uint8Array<ArrayBufferLike>` vs. `BufferSource` when passing `Uint8Array` values to `SubtleCrypto` methods — fixed with `as BufferSource` casts where this comes up).
 - Chrome/Chromium only — the app must feature-detect `navigator.bluetooth` and show a clear unsupported-browser message rather than failing silently (spec: Error handling).
 - No backend/server component of any kind — GitHub Pages static hosting only.
 - Text-only messages, no attachments (spec: Scope).
@@ -310,9 +310,14 @@ export function deriveSharedSecret(privateKey: Uint8Array, peerPublicKey: Uint8A
 const HKDF_INFO = new TextEncoder().encode('ble-local-chat')
 
 export async function deriveAesKey(sharedSecret: Uint8Array): Promise<CryptoKey> {
-  const keyMaterial = await crypto.subtle.importKey('raw', sharedSecret, 'HKDF', false, ['deriveKey'])
+  // `as BufferSource` casts below work around a strict-mode-only TS/DOM-lib
+  // mismatch: this TS version's `Uint8Array` is generic over `ArrayBufferLike`
+  // (includes `SharedArrayBuffer`), while `SubtleCrypto` methods want the
+  // narrower `BufferSource`. The values here are always real ArrayBuffer-backed
+  // Uint8Arrays, so the cast doesn't hide an actual type mismatch.
+  const keyMaterial = await crypto.subtle.importKey('raw', sharedSecret as BufferSource, 'HKDF', false, ['deriveKey'])
   return crypto.subtle.deriveKey(
-    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: HKDF_INFO },
+    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0) as BufferSource, info: HKDF_INFO as BufferSource },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
     false,
@@ -325,14 +330,14 @@ export function generateRoomKeyMaterial(): Uint8Array {
 }
 
 export function importRoomKey(raw: Uint8Array): Promise<CryptoKey> {
-  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
+  return crypto.subtle.importKey('raw', raw as BufferSource, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
 }
 
 const IV_LENGTH = 12
 
 export async function encrypt(key: CryptoKey, plaintext: Uint8Array): Promise<Uint8Array> {
   const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH))
-  const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext))
+  const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv as BufferSource }, key, plaintext as BufferSource))
   const out = new Uint8Array(IV_LENGTH + ciphertext.length)
   out.set(iv, 0)
   out.set(ciphertext, IV_LENGTH)
@@ -342,7 +347,7 @@ export async function encrypt(key: CryptoKey, plaintext: Uint8Array): Promise<Ui
 export async function decrypt(key: CryptoKey, data: Uint8Array): Promise<Uint8Array> {
   const iv = data.slice(0, IV_LENGTH)
   const ciphertext = data.slice(IV_LENGTH)
-  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext))
+  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv as BufferSource }, key, ciphertext as BufferSource))
 }
 ```
 
@@ -383,6 +388,7 @@ git commit -m "feat: add crypto engine (Ed25519 signing, X25519 ECDH, AES-GCM)"
 import { describe, it, expect } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { loadOrCreateIdentity, fingerprint } from './identity-manager'
+import { generateSigningKeyPair, generateDhKeyPair } from '../crypto/crypto-engine'
 
 describe('loadOrCreateIdentity', () => {
   it('creates a new identity with the given nickname', async () => {
@@ -414,6 +420,13 @@ describe('fingerprint', () => {
     const dbB = new IDBFactory()
     const a = await loadOrCreateIdentity(dbA, 'alice')
     const b = await loadOrCreateIdentity(dbB, 'bob')
+    expect(fingerprint(a)).not.toBe(fingerprint(b))
+  })
+
+  it('differs when only dhPublicKey differs', () => {
+    const signing = generateSigningKeyPair()
+    const a = { signPublicKey: signing.publicKey, dhPublicKey: generateDhKeyPair().publicKey }
+    const b = { signPublicKey: signing.publicKey, dhPublicKey: generateDhKeyPair().publicKey }
     expect(fingerprint(a)).not.toBe(fingerprint(b))
   })
 })
@@ -498,13 +511,18 @@ export async function loadOrCreateIdentity(factory: IDBFactory, nickname: string
 }
 
 export function fingerprint(identity: Pick<Identity, 'signPublicKey' | 'dhPublicKey'>): string {
-  const combined = new Uint8Array(identity.signPublicKey.length + identity.dhPublicKey.length)
-  combined.set(identity.signPublicKey, 0)
-  combined.set(identity.dhPublicKey, identity.signPublicKey.length)
-  let hex = ''
-  for (const byte of combined) hex += byte.toString(16).padStart(2, '0')
-  // Group into 4-character blocks for a Signal-style "safety number" look.
-  return (hex.match(/.{1,4}/g) ?? []).slice(0, 12).join(' ')
+  // Blocks are taken from each key separately (not from a single truncated
+  // concatenation) so the fingerprint is genuinely sensitive to both keys —
+  // a naive "concatenate then truncate" approach never reaches the second
+  // key's bytes once truncated to a short block count.
+  const toHexBlocks = (bytes: Uint8Array, blockCount: number): string[] => {
+    let hex = ''
+    for (const byte of bytes) hex += byte.toString(16).padStart(2, '0')
+    return (hex.match(/.{1,4}/g) ?? []).slice(0, blockCount)
+  }
+  const signBlocks = toHexBlocks(identity.signPublicKey, 6)
+  const dhBlocks = toHexBlocks(identity.dhPublicKey, 6)
+  return [...signBlocks, ...dhBlocks].join(' ')
 }
 ```
 
@@ -514,7 +532,7 @@ export function fingerprint(identity: Pick<Identity, 'signPublicKey' | 'dhPublic
 npx vitest run src/identity/identity-manager.test.ts
 ```
 
-Expected: PASS, 4 tests passed.
+Expected: PASS, 5 tests passed.
 
 - [ ] **Step 6: Commit**
 
