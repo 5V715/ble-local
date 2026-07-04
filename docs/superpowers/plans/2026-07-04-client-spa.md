@@ -839,7 +839,7 @@ The `addChunk` calls in the tests above don't pass `nowMs`, so they all default 
 npx vitest run src/protocol/framing.test.ts
 ```
 
-Expected: PASS, 7 tests passed.
+Expected: PASS, 6 tests passed.
 
 - [ ] **Step 6: Commit**
 
