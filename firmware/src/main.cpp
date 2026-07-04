@@ -3,6 +3,7 @@
 #include "ble_protocol.h"
 #include "connection_table.h"
 #include "system_frames.h"
+#include "relay.h"
 
 static NimBLECharacteristic* outboxCharacteristic = nullptr;
 static ConnectionTable connectionTable;
@@ -50,6 +51,13 @@ class HubServerCallbacks : public NimBLEServerCallbacks {
   }
 };
 
+class InboxCallbacks : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic* characteristic, NimBLEConnInfo& connInfo) override {
+    NimBLEAttValue value = characteristic->getValue();
+    relayFrame(outboxCharacteristic, connectionTable, connInfo.getConnHandle(), value.data(), value.length());
+  }
+};
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -62,7 +70,9 @@ void setup() {
 
   NimBLEService* service = server->createService(HUB_SERVICE_UUID);
 
-  service->createCharacteristic(INBOX_CHARACTERISTIC_UUID, NIMBLE_PROPERTY::WRITE);
+  NimBLECharacteristic* inbox = service->createCharacteristic(INBOX_CHARACTERISTIC_UUID, NIMBLE_PROPERTY::WRITE);
+  inbox->setCallbacks(new InboxCallbacks());
+
   outboxCharacteristic = service->createCharacteristic(OUTBOX_CHARACTERISTIC_UUID, NIMBLE_PROPERTY::NOTIFY);
 
   server->start();
