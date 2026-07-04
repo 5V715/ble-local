@@ -256,6 +256,15 @@ struct ConnectionSlot {
   bool occupied = false;
   uint16_t connHandle = 0;
   uint8_t shortId = 0;
+
+  // Explicit constructors are required in addition to the default member
+  // initializers above: this toolchain compiles as gnu++11, under which a
+  // class with default member initializers is not an aggregate, so
+  // brace-init-as-assignment (`slots_[i] = { true, connHandle, shortId }`
+  // in connection_table.cpp) fails to compile without these.
+  ConnectionSlot() : occupied(false), connHandle(0), shortId(0) {}
+  ConnectionSlot(bool occ, uint16_t handle, uint8_t id)
+    : occupied(occ), connHandle(handle), shortId(id) {}
 };
 
 // Fixed-size table mapping BLE connection handles to assigned short ids.
