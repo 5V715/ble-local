@@ -15,7 +15,7 @@ type ControlMessage =
 
 export class MockHubTransport implements Transport {
   private channel: BroadcastChannel | null = null
-  private instanceId = crypto.randomUUID()
+  private instanceId: string = ''
   private knownShortIds = new Set<number>()
   private knownPeerInstanceIds = new Set<string>()
   private _myShortId: number | null = null
@@ -32,6 +32,7 @@ export class MockHubTransport implements Transport {
   }
 
   async connect(): Promise<void> {
+    this.instanceId = crypto.randomUUID()
     this.channel = new BroadcastChannel(this.roomName)
     this.channel.addEventListener('message', this.handleMessage)
 
@@ -49,6 +50,7 @@ export class MockHubTransport implements Transport {
     if (this._myShortId !== null) {
       this.broadcast({ kind: 'left', shortId: this._myShortId })
     }
+    this._myShortId = null
     this.channel?.removeEventListener('message', this.handleMessage)
     this.channel?.close()
     this.channel = null

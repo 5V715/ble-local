@@ -80,4 +80,35 @@ describe('MockHubTransport', () => {
 
     expect(left).toContain(bId)
   })
+
+  it('resets myShortId to null after disconnect', async () => {
+    const room = crypto.randomUUID()
+    const a = make(room)
+    await a.connect()
+    expect(a.myShortId).not.toBeNull()
+    await a.disconnect()
+    expect(a.myShortId).toBeNull()
+  })
+
+  it('treats reconnecting the same instance as a new peer join', async () => {
+    const room = crypto.randomUUID()
+    const a = make(room)
+    const b = make(room)
+    await a.connect()
+    await b.connect()
+    await new Promise((r) => setTimeout(r, 50))
+
+    const joined: number[] = []
+    a.onMemberJoined((id) => joined.push(id))
+
+    // Disconnect and reconnect b
+    await b.disconnect()
+    await new Promise((r) => setTimeout(r, 50))
+
+    await b.connect()
+    await new Promise((r) => setTimeout(r, 50))
+
+    // b's new shortId should fire onMemberJoined on a, even though it's the same instance
+    expect(joined).toContain(b.myShortId)
+  })
 })
