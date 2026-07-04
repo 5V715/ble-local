@@ -54,9 +54,10 @@ export class GroupKeyManager {
       const sharedSecret = deriveSharedSecret(myIdentity.dhPrivateKey, senderDhPublicKey)
       const wrappingKey = await deriveAesKey(sharedSecret)
       const raw = await decrypt(wrappingKey, decoded.wrappedRoomKey)
+      const imported = await importRoomKey(raw)
 
       this.pendingRawKey = raw
-      this.roomKey = await importRoomKey(raw)
+      this.roomKey = imported
       this.epoch = decoded.epoch
       return true
     } catch {

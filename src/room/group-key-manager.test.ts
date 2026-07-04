@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { GroupKeyManager } from './group-key-manager'
 import { generateSigningKeyPair, generateDhKeyPair, encrypt, decrypt } from '../crypto/crypto-engine'
+import * as cryptoEngine from '../crypto/crypto-engine'
 import type { Identity } from '../identity/identity-manager'
 
 function makeIdentity(nickname: string): Identity {
@@ -108,12 +109,39 @@ describe('GroupKeyManager', () => {
     const accepted2 = await bobKeys.acceptKeyPackage(carolPackage, carol.signPublicKey, bob, carol.dhPublicKey)
     expect(accepted2).toBe(true)
 
+    // Capture Carol's room key before attempting stale acceptance
+    const carolRoomKey = bobKeys.getRoomKey()
+
     // Now try to send Alice's original (stale-epoch) package to Bob again
     // The signature is valid, but the epoch is now stale
     const accepted3 = await bobKeys.acceptKeyPackage(alicePackage, alice.signPublicKey, bob, alice.dhPublicKey)
     expect(accepted3).toBe(false)
     // Room key should remain unchanged (Carol's key)
-    expect(bobKeys.getRoomKey()).toBe(bobKeys.getRoomKey())
+    expect(bobKeys.getRoomKey()).toBe(carolRoomKey)
     expect(bobKeys.hasRoomKey()).toBe(true)
+  })
+
+  it('does not mutate state partially if importRoomKey throws after successful decrypt', async () => {
+    const alice = makeIdentity('alice')
+    const bob = makeIdentity('bob')
+
+    // Alice mints and sends to Bob
+    const aliceKeys = new GroupKeyManager()
+    await aliceKeys.mintNewRoomKey()
+    const alicePackage = await aliceKeys.buildKeyPackageFor(alice, bob.dhPublicKey)
+
+    // Spy on importRoomKey and make it throw after a successful decrypt
+    const importRoomKeySpy = vi.spyOn(cryptoEngine, 'importRoomKey').mockRejectedValue(new Error('importRoomKey failed'))
+
+    const bobKeys = new GroupKeyManager()
+    const accepted = await bobKeys.acceptKeyPackage(alicePackage, alice.signPublicKey, bob, alice.dhPublicKey)
+
+    expect(accepted).toBe(false)
+    // Verify no partial mutation: roomKey should still be null
+    expect(bobKeys.hasRoomKey()).toBe(false)
+    expect(bobKeys.getRoomKey()).toBeNull()
+
+    // Clean up the spy
+    importRoomKeySpy.mockRestore()
   })
 })
