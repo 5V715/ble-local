@@ -129,6 +129,18 @@ describe('WebBluetoothTransport', () => {
     expect(lists).toEqual([[1, 2, 3]])
   })
 
+  it('sets myShortId when it receives a your-id system frame', async () => {
+    const device = installFakeBluetooth()
+    const transport = new WebBluetoothTransport()
+    await transport.connect()
+
+    expect(transport.myShortId).toBeNull()
+
+    device.gatt.service.outbox.notify(new Uint8Array([0xf3, 4]))
+
+    expect(transport.myShortId).toBe(4)
+  })
+
   it('reports connected, then reconnecting, then connected again after an unexpected disconnect', async () => {
     const device = installFakeBluetooth()
     const transport = new WebBluetoothTransport()

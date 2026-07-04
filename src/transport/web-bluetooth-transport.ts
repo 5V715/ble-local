@@ -5,7 +5,8 @@ import {
   OUTBOX_CHARACTERISTIC_UUID,
   SYSTEM_FRAME_MEMBER_LIST,
   SYSTEM_FRAME_MEMBER_JOINED,
-  SYSTEM_FRAME_MEMBER_LEFT
+  SYSTEM_FRAME_MEMBER_LEFT,
+  SYSTEM_FRAME_YOUR_ID
 } from './ble-protocol'
 
 export { HUB_SERVICE_UUID, INBOX_CHARACTERISTIC_UUID, OUTBOX_CHARACTERISTIC_UUID }
@@ -108,6 +109,10 @@ export class WebBluetoothTransport implements Transport {
     const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
     const firstByte = bytes[0]
 
+    if (firstByte === SYSTEM_FRAME_YOUR_ID) {
+      this._myShortId = bytes[1]
+      return
+    }
     if (firstByte === SYSTEM_FRAME_MEMBER_LIST) {
       const count = bytes[1]
       const ids = [...bytes.slice(2, 2 + count)]
