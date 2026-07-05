@@ -50,6 +50,17 @@ export async function mountApp(root: HTMLElement): Promise<void> {
   const sendForm = root.querySelector<HTMLFormElement>('#send-form')!
   const messageInput = root.querySelector<HTMLInputElement>('#message-input')!
 
+  const setupInputs: Array<HTMLInputElement | HTMLSelectElement | HTMLButtonElement> = [
+    nicknameInput,
+    modeSelect,
+    roomInput,
+    joinButton
+  ]
+
+  function setSetupDisabled(disabled: boolean) {
+    for (const input of setupInputs) input.disabled = disabled
+  }
+
   let activeThreadShortId: number | null = null // null = group room
   let joinInProgress = false
 
@@ -62,12 +73,12 @@ export async function mountApp(root: HTMLElement): Promise<void> {
     // before the first join's awaits resolve.
     if (joinInProgress) return
     joinInProgress = true
-    joinButton.disabled = true
+    setSetupDisabled(true)
 
     const nickname = nicknameInput.value.trim()
     if (!nickname) {
       joinInProgress = false
-      joinButton.disabled = false
+      setSetupDisabled(false)
       return
     }
     setupError.textContent = ''
@@ -77,9 +88,10 @@ export async function mountApp(root: HTMLElement): Promise<void> {
       if (!isWebBluetoothSupported()) {
         setupError.textContent = 'This browser does not support Web Bluetooth. Use Chrome or a Chromium-based browser.'
         joinInProgress = false
-        joinButton.disabled = false
+        setSetupDisabled(false)
         return
       }
+      connectionStatusEl.textContent = 'Connecting… choose the hub from the Bluetooth prompt.'
       const bleTransport = new WebBluetoothTransport()
       bleTransport.onConnectionStateChange((state) => {
         connectionStatusEl.textContent = state === 'connected' ? '' : `Bluetooth: ${state}…`
@@ -89,7 +101,7 @@ export async function mountApp(root: HTMLElement): Promise<void> {
       const room = roomInput.value.trim()
       if (!room) {
         joinInProgress = false
-        joinButton.disabled = false
+        setSetupDisabled(false)
         return
       }
       transport = new MockHubTransport(room)
@@ -109,9 +121,10 @@ export async function mountApp(root: HTMLElement): Promise<void> {
     try {
       await controller.start()
     } catch (error) {
+      connectionStatusEl.textContent = ''
       setupError.textContent = error instanceof Error ? error.message : 'Failed to connect.'
       joinInProgress = false
-      joinButton.disabled = false
+      setSetupDisabled(false)
       return
     }
 
