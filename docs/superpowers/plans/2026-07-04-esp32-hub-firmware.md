@@ -22,7 +22,7 @@
   - `SYSTEM_FRAME_YOUR_ID = 0xf3` (new — added in this plan, on both firmware and client)
   - `BROADCAST_RECIPIENT = 0xff` (matches the client's `src/protocol/framing.ts`)
 - The recipient short ID lives at **byte offset 2** of any frame written to `inbox` (matches the client's frame header layout in `src/protocol/framing.ts`: `msgType`(1) `senderShortId`(1) `recipientShortId`(1) ...). This is the only byte the hub ever inspects.
-- `MAX_CONNECTIONS = 7` (compile-time constant).
+- `MAX_CONNECTIONS = 7` (compile-time constant). NimBLE-Arduino's own connection pool defaults to `CONFIG_BT_NIMBLE_MAX_CONNECTIONS = 3` (see the library's `nimconfig.h`) — raising the application-level `MAX_CONNECTIONS` constant alone does not raise the underlying BLE stack's connection capacity. `firmware/platformio.ini` must set `build_flags = -D CONFIG_BT_NIMBLE_MAX_CONNECTIONS=7` to match, or the 4th connection attempt fails at the BLE stack level before this firmware's own capacity/advertising-pause logic (Task 4) is ever exercised.
 - No crypto, identity, or persistence in firmware — it is a dumb relay by design.
 - No automated firmware unit tests (explicit spec scope decision — the relay logic's surface area is small enough that this is disproportionate for this project). Verification is a `pio run` compile check (run in this development environment) plus manual hardware testing (run by the user — this environment has no physical ESP32 attached).
 - Client patch touches only `src/transport/ble-protocol.ts`, `src/transport/web-bluetooth-transport.ts`, and `src/transport/web-bluetooth-transport.test.ts` in the existing repo (Node ≥20, TypeScript strict mode, Vitest already configured from the earlier client plan — verify with `npx tsc --noEmit`, not just `npm test`/`npm run build`).
@@ -73,7 +73,10 @@ board = esp32dev
 framework = arduino
 lib_deps = h2zero/NimBLE-Arduino@^2.1.0
 monitor_speed = 115200
+build_flags = -D CONFIG_BT_NIMBLE_MAX_CONNECTIONS=7
 ```
+
+The `build_flags` line raises NimBLE-Arduino's own connection pool to match this plan's `MAX_CONNECTIONS = 7` (see Global Constraints above) — without it, the library defaults to a 3-connection pool regardless of the application-level constant.
 
 - [ ] **Step 4: Create `firmware/src/ble_protocol.h`**
 
