@@ -46,6 +46,9 @@ public:
   bool isFull() const;
   bool isEmpty() const;
 
+  // Number of currently-occupied slots (0..MAX_CONNECTIONS).
+  uint8_t occupiedCount() const;
+
 private:
   ConnectionSlot slots_[MAX_CONNECTIONS];
 };

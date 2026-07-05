@@ -220,5 +220,6 @@ export async function mountApp(root: HTMLElement): Promise<void> {
     line.appendChild(document.createTextNode(text))
 
     messagesEl.appendChild(line)
+    messagesEl.scrollTop = messagesEl.scrollHeight
   }
 }

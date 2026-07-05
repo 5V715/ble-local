@@ -74,3 +74,11 @@ bool ConnectionTable::isEmpty() const {
   }
   return true;
 }
+
+uint8_t ConnectionTable::occupiedCount() const {
+  uint8_t count = 0;
+  for (uint8_t i = 0; i < MAX_CONNECTIONS; i++) {
+    if (slots_[i].occupied) count++;
+  }
+  return count;
+}
