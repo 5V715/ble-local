@@ -16,12 +16,16 @@ void relayFrame(NimBLECharacteristic* outbox, const ConnectionTable& table, uint
     uint16_t handles[MAX_CONNECTIONS];
     uint8_t count = table.otherConnHandles((uint8_t)senderShortId, handles);
     for (uint8_t i = 0; i < count; i++) {
-      outbox->notify(data, length, handles[i]);
+      if (!outbox->notify(data, length, handles[i])) {
+        Serial.printf("relay notify (broadcast) failed for connection %u\n", handles[i]);
+      }
     }
   } else {
     uint16_t targetHandle;
     if (table.connHandleFor(recipient, &targetHandle)) {
-      outbox->notify(data, length, targetHandle);
+      if (!outbox->notify(data, length, targetHandle)) {
+        Serial.printf("relay notify (unicast) failed for connection %u\n", targetHandle);
+      }
     }
   }
 }

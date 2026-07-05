@@ -2,7 +2,9 @@
 
 void sendYourId(NimBLECharacteristic* outbox, uint16_t connHandle, uint8_t assignedShortId) {
   uint8_t frame[2] = { SYSTEM_FRAME_YOUR_ID, assignedShortId };
-  outbox->notify(frame, sizeof(frame), connHandle);
+  if (!outbox->notify(frame, sizeof(frame), connHandle)) {
+    Serial.printf("notify(YOUR_ID) failed for connection %u\n", connHandle);
+  }
 }
 
 void sendMemberList(NimBLECharacteristic* outbox, uint16_t connHandle, const ConnectionTable& table, uint8_t excludeShortId) {
@@ -15,7 +17,9 @@ void sendMemberList(NimBLECharacteristic* outbox, uint16_t connHandle, const Con
   for (uint8_t i = 0; i < count; i++) {
     frame[2 + i] = ids[i];
   }
-  outbox->notify(frame, 2 + count, connHandle);
+  if (!outbox->notify(frame, 2 + count, connHandle)) {
+    Serial.printf("notify(MEMBER_LIST) failed for connection %u\n", connHandle);
+  }
 }
 
 void broadcastMemberJoined(NimBLECharacteristic* outbox, const ConnectionTable& table, uint8_t joinedShortId) {
@@ -24,7 +28,9 @@ void broadcastMemberJoined(NimBLECharacteristic* outbox, const ConnectionTable& 
 
   uint8_t frame[2] = { SYSTEM_FRAME_MEMBER_JOINED, joinedShortId };
   for (uint8_t i = 0; i < count; i++) {
-    outbox->notify(frame, sizeof(frame), handles[i]);
+    if (!outbox->notify(frame, sizeof(frame), handles[i])) {
+      Serial.printf("notify(MEMBER_JOINED) failed for connection %u\n", handles[i]);
+    }
   }
 }
 
@@ -37,6 +43,8 @@ void broadcastMemberLeft(NimBLECharacteristic* outbox, const ConnectionTable& ta
 
   uint8_t frame[2] = { SYSTEM_FRAME_MEMBER_LEFT, leftShortId };
   for (uint8_t i = 0; i < count; i++) {
-    outbox->notify(frame, sizeof(frame), handles[i]);
+    if (!outbox->notify(frame, sizeof(frame), handles[i])) {
+      Serial.printf("notify(MEMBER_LEFT) failed for connection %u\n", handles[i]);
+    }
   }
 }

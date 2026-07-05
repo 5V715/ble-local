@@ -21,9 +21,14 @@ class HubServerCallbacks : public NimBLEServerCallbacks {
 
     Serial.printf("Connection %u assigned short id %d\n", connHandle, shortId);
 
-    sendYourId(outboxCharacteristic, connHandle, (uint8_t)shortId);
-    sendMemberList(outboxCharacteristic, connHandle, connectionTable, (uint8_t)shortId);
-    broadcastMemberJoined(outboxCharacteristic, connectionTable, (uint8_t)shortId);
+    // Onboarding notifications (your-id / member-list / member-joined) are
+    // deliberately NOT sent here. onConnect fires at BLE link-connect time,
+    // before this client has discovered the outbox characteristic or
+    // written its CCCD to subscribe to notifications — a notify() targeted
+    // at this brand-new connHandle at this point is silently dropped by
+    // every client BLE stack (it hasn't subscribed yet). They're sent from
+    // OutboxCallbacks::onSubscribe below instead, once this connection has
+    // actually subscribed and can receive them.
 
     if (connectionTable.isFull()) {
       Serial.println("Table full, pausing advertising");
@@ -58,6 +63,32 @@ class InboxCallbacks : public NimBLECharacteristicCallbacks {
   }
 };
 
+class OutboxCallbacks : public NimBLECharacteristicCallbacks {
+  // Fires whenever a connection writes the outbox characteristic's CCCD.
+  // subValue is 0 on unsubscribe, non-zero (notifications and/or
+  // indications enabled) on subscribe. This is the earliest point at which
+  // a notify() targeted at connInfo's connHandle is actually deliverable,
+  // so the new connection's onboarding frames are sent from here rather
+  // than from HubServerCallbacks::onConnect.
+  void onSubscribe(NimBLECharacteristic* characteristic, NimBLEConnInfo& connInfo, uint16_t subValue) override {
+    if (subValue == 0) {
+      return;
+    }
+
+    uint16_t connHandle = connInfo.getConnHandle();
+    int16_t shortId = connectionTable.shortIdFor(connHandle);
+    if (shortId == INVALID_SHORT_ID) {
+      return;
+    }
+
+    Serial.printf("Connection %u (short id %d) subscribed, sending onboarding frames\n", connHandle, shortId);
+
+    sendYourId(outboxCharacteristic, connHandle, (uint8_t)shortId);
+    sendMemberList(outboxCharacteristic, connHandle, connectionTable, (uint8_t)shortId);
+    broadcastMemberJoined(outboxCharacteristic, connectionTable, (uint8_t)shortId);
+  }
+};
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -74,6 +105,7 @@ void setup() {
   inbox->setCallbacks(new InboxCallbacks());
 
   outboxCharacteristic = service->createCharacteristic(OUTBOX_CHARACTERISTIC_UUID, NIMBLE_PROPERTY::NOTIFY);
+  outboxCharacteristic->setCallbacks(new OutboxCallbacks());
 
   server->start();
 
