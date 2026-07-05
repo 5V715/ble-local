@@ -6,7 +6,24 @@
 #include "relay.h"
 
 static NimBLECharacteristic* outboxCharacteristic = nullptr;
+static NimBLEAdvertising* advertising = nullptr;
 static ConnectionTable connectionTable;
+
+// Publishes the number of free connection slots as one-byte service data
+// on HUB_SERVICE_UUID, so a scanning client can see room availability
+// before attempting to connect. The primary advertising packet is already
+// packed with flags + the 128-bit service UUID (close to the 31-byte
+// legacy limit), so the slot count goes in the scan response packet
+// instead — built fresh each call and pushed wholesale, which both avoids
+// exceeding the payload budget and sidesteps NimBLEAdvertisementData's
+// service-data field simply appending rather than replacing on repeat
+// calls. Safe to call before advertising has started or while it's live.
+static void advertiseOpenSlots() {
+  uint8_t openSlots = MAX_CONNECTIONS - connectionTable.occupiedCount();
+  NimBLEAdvertisementData scanResponse;
+  scanResponse.setServiceData(NimBLEUUID(HUB_SERVICE_UUID), std::string(1, (char)openSlots));
+  advertising->setScanResponseData(scanResponse);
+}
 
 class HubServerCallbacks : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer* server, NimBLEConnInfo& connInfo) override {
@@ -20,6 +37,7 @@ class HubServerCallbacks : public NimBLEServerCallbacks {
     }
 
     Serial.printf("Connection %u assigned short id %d\n", connHandle, shortId);
+    advertiseOpenSlots();
 
     // Onboarding notifications (your-id / member-list / member-joined) are
     // deliberately NOT sent here. onConnect fires at BLE link-connect time,
@@ -48,6 +66,7 @@ class HubServerCallbacks : public NimBLEServerCallbacks {
 
     Serial.printf("Connection %u (short id %d) disconnected, reason %d\n", connHandle, shortId, reason);
     broadcastMemberLeft(outboxCharacteristic, connectionTable, (uint8_t)shortId);
+    advertiseOpenSlots();
 
     if (wasFull) {
       Serial.println("Resuming advertising");
@@ -109,8 +128,10 @@ void setup() {
 
   server->start();
 
-  NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
+  advertising = NimBLEDevice::getAdvertising();
   advertising->addServiceUUID(HUB_SERVICE_UUID);
+  advertising->enableScanResponse(true);
+  advertiseOpenSlots();
   advertising->start();
 
   Serial.println("Advertising started");
