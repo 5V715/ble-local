@@ -115,7 +115,7 @@ export async function mountApp(root: HTMLElement): Promise<void> {
 
     controller.onMessage((msg: IncomingChatMessage) => {
       const shouldShow = msg.scope === 'group' ? activeThreadShortId === null : activeThreadShortId === msg.fromShortId
-      if (shouldShow) appendMessage(`${msg.nickname}: ${msg.text}`)
+      if (shouldShow) appendMessage(`${msg.nickname}: ${msg.text}`, Date.now())
     })
 
     try {
@@ -185,10 +185,10 @@ export async function mountApp(root: HTMLElement): Promise<void> {
       messageInput.value = ''
       if (activeThreadShortId === null) {
         await controller.sendGroupMessage(text)
-        appendMessage(`me: ${text}`)
+        appendMessage(`me: ${text}`, Date.now())
       } else {
         await controller.sendDirectMessage(activeThreadShortId, text)
-        appendMessage(`me: ${text}`)
+        appendMessage(`me: ${text}`, Date.now())
       }
     })
   })
@@ -197,9 +197,18 @@ export async function mountApp(root: HTMLElement): Promise<void> {
     threadLabelEl.textContent = activeThreadShortId === null ? 'Group room' : `Direct thread with #${activeThreadShortId}`
   }
 
-  function appendMessage(text: string) {
+  function appendMessage(text: string, sentAt: number) {
     const line = document.createElement('div')
-    line.textContent = text
+
+    const time = document.createElement('time')
+    time.textContent = new Date(sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    line.appendChild(time)
+
+    // createElement/textContent, not innerHTML — see the roster-rendering
+    // comment above: message text can come from a peer's own (attacker-
+    // controlled) chat payload and must never be parsed as markup.
+    line.appendChild(document.createTextNode(text))
+
     messagesEl.appendChild(line)
   }
 }
