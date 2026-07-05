@@ -13,8 +13,8 @@ export async function mountApp(root: HTMLElement): Promise<void> {
       <label>
         Connection
         <select id="mode">
-          <option value="mock">Mock room (same-browser testing)</option>
           <option value="bluetooth">Bluetooth hub</option>
+          <option value="mock">Mock room (same-browser testing)</option>
         </select>
       </label>
       <label id="room-label">Room name <input id="room" placeholder="living-room" /></label>
@@ -64,9 +64,19 @@ export async function mountApp(root: HTMLElement): Promise<void> {
   let activeThreadShortId: number | null = null // null = group room
   let joinInProgress = false
 
-  modeSelect.addEventListener('change', () => {
+  function updateRoomLabelVisibility() {
     roomLabel.hidden = modeSelect.value === 'bluetooth'
-  })
+  }
+
+  modeSelect.addEventListener('change', updateRoomLabelVisibility)
+  updateRoomLabelVisibility()
+
+  function updateJoinAvailability() {
+    joinButton.disabled = nicknameInput.value.trim().length === 0
+  }
+
+  nicknameInput.addEventListener('input', updateJoinAvailability)
+  updateJoinAvailability()
 
   joinButton.addEventListener('click', async () => {
     // Guard against a second click starting a second controller/transport
