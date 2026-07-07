@@ -15,11 +15,14 @@ export function isWebBluetoothSupported(): boolean {
   return typeof navigator !== 'undefined' && 'bluetooth' in navigator
 }
 
+const ONBOARDING_TIMEOUT_MS = 10_000
+
 export class WebBluetoothTransport implements Transport {
   private device: any = null
   private inboxChar: any = null
   private outboxChar: any = null
   private _myShortId: number | null = null
+  private onboardingResolvers: { yourId: () => void; memberList: () => void } | null = null
 
   private frameCbs: Array<(bytes: Uint8Array) => void> = []
   private joinedCbs: Array<(shortId: number) => void> = []
@@ -80,8 +83,36 @@ export class WebBluetoothTransport implements Transport {
     const service = await server.getPrimaryService(HUB_SERVICE_UUID)
     this.inboxChar = await service.getCharacteristic(INBOX_CHARACTERISTIC_UUID)
     this.outboxChar = await service.getCharacteristic(OUTBOX_CHARACTERISTIC_UUID)
-    await this.outboxChar.startNotifications()
+
+    // The hub sends its onboarding frames (your-id, then member-list) as
+    // notifications right after the CCCD subscribe write completes, but
+    // those are separate async BLE packets — they are not guaranteed to
+    // have arrived by the time startNotifications() resolves. Callers
+    // (ChatController) decide whether to mint a fresh room key based on
+    // roster state and read myShortId immediately after connect() —
+    // both need onboarding to have actually landed first, so connect()
+    // must not resolve until it has. The listener is attached before
+    // subscribing (not after) so a notification that arrives the instant
+    // the subscribe write completes can never be dropped for lack of a
+    // listener.
     this.outboxChar.addEventListener('characteristicvaluechanged', this.handleNotification)
+    const onboarded = this.waitForOnboarding()
+    await this.outboxChar.startNotifications()
+    await onboarded
+  }
+
+  private waitForOnboarding(): Promise<void> {
+    let resolveYourId!: () => void
+    let resolveMemberList!: () => void
+    const yourId = new Promise<void>((resolve) => (resolveYourId = resolve))
+    const memberList = new Promise<void>((resolve) => (resolveMemberList = resolve))
+    this.onboardingResolvers = { yourId: resolveYourId, memberList: resolveMemberList }
+
+    const onboarded = Promise.all([yourId, memberList]).then(() => undefined)
+    const timeout = new Promise<void>((_, reject) => {
+      setTimeout(() => reject(new Error('WebBluetoothTransport: timed out waiting for hub onboarding frames')), ONBOARDING_TIMEOUT_MS)
+    })
+    return Promise.race([onboarded, timeout])
   }
 
   private handleUnexpectedDisconnect = async (): Promise<void> => {
@@ -111,12 +142,14 @@ export class WebBluetoothTransport implements Transport {
 
     if (firstByte === SYSTEM_FRAME_YOUR_ID) {
       this._myShortId = bytes[1]
+      this.onboardingResolvers?.yourId()
       return
     }
     if (firstByte === SYSTEM_FRAME_MEMBER_LIST) {
       const count = bytes[1]
       const ids = [...bytes.slice(2, 2 + count)]
       this.listCbs.forEach((cb) => cb(ids))
+      this.onboardingResolvers?.memberList()
       return
     }
     if (firstByte === SYSTEM_FRAME_MEMBER_JOINED) {
