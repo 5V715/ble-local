@@ -16,9 +16,32 @@ class FakeCharacteristic extends EventTarget {
   }
 }
 
+// Real firmware sends your-id then member-list as notifications right after
+// the CCCD subscribe write completes (OutboxCallbacks::onSubscribe) — as
+// separate, asynchronous BLE packets, never synchronously with
+// startNotifications() resolving. Auto-sending them here (instead of
+// leaving onboarding to be triggered manually by each test) exercises the
+// same connect()-waits-for-onboarding contract WebBluetoothTransport
+// actually relies on against real hardware.
+class FakeOutboxCharacteristic extends FakeCharacteristic {
+  autoOnboard = true
+  yourId = 1
+  memberIds: number[] = []
+
+  async startNotifications() {
+    if (this.autoOnboard) {
+      queueMicrotask(() => {
+        this.notify(new Uint8Array([0xf3, this.yourId]))
+        this.notify(new Uint8Array([0xf0, this.memberIds.length, ...this.memberIds]))
+      })
+    }
+    return this
+  }
+}
+
 class FakeService {
   inbox = new FakeCharacteristic()
-  outbox = new FakeCharacteristic()
+  outbox = new FakeOutboxCharacteristic()
   async getCharacteristic(uuid: string) {
     if (uuid === INBOX_CHARACTERISTIC_UUID) return this.inbox
     if (uuid === OUTBOX_CHARACTERISTIC_UUID) return this.outbox
@@ -117,28 +140,49 @@ describe('WebBluetoothTransport', () => {
     expect(joined).toEqual([7])
   })
 
-  it('routes a member-list system frame to onMemberList', async () => {
+  it('routes the member-list system frame sent during onboarding to onMemberList', async () => {
     const device = installFakeBluetooth()
+    device.gatt.service.outbox.memberIds = [1, 2, 3]
     const transport = new WebBluetoothTransport()
     const lists: number[][] = []
     transport.onMemberList((ids) => lists.push(ids))
-    await transport.connect()
 
-    device.gatt.service.outbox.notify(new Uint8Array([0xf0, 3, 1, 2, 3]))
+    await transport.connect()
 
     expect(lists).toEqual([[1, 2, 3]])
   })
 
-  it('sets myShortId when it receives a your-id system frame', async () => {
+  it('sets myShortId from the your-id system frame sent during onboarding', async () => {
     const device = installFakeBluetooth()
+    device.gatt.service.outbox.yourId = 4
     const transport = new WebBluetoothTransport()
+
     await transport.connect()
 
-    expect(transport.myShortId).toBeNull()
-
-    device.gatt.service.outbox.notify(new Uint8Array([0xf3, 4]))
-
     expect(transport.myShortId).toBe(4)
+  })
+
+  it('does not resolve connect() until both onboarding frames (your-id and member-list) arrive', async () => {
+    const device = installFakeBluetooth()
+    device.gatt.service.outbox.autoOnboard = false
+    const transport = new WebBluetoothTransport()
+
+    let resolved = false
+    const connecting = transport.connect().then(() => {
+      resolved = true
+    })
+
+    await new Promise((r) => setTimeout(r, 10))
+    expect(resolved).toBe(false)
+
+    device.gatt.service.outbox.notify(new Uint8Array([0xf3, 1]))
+    await new Promise((r) => setTimeout(r, 10))
+    expect(resolved).toBe(false)
+
+    device.gatt.service.outbox.notify(new Uint8Array([0xf0, 0]))
+    await connecting
+
+    expect(resolved).toBe(true)
   })
 
   it('reports connected, then reconnecting, then connected again after an unexpected disconnect', async () => {
