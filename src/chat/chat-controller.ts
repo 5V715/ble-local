@@ -9,6 +9,16 @@ import { encrypt, decrypt, deriveSharedSecret, deriveAesKey } from '../crypto/cr
 const MAX_CHUNK_PAYLOAD_SIZE = 180
 const REASSEMBLY_TIMEOUT_MS = 15_000
 const REASSEMBLY_SWEEP_INTERVAL_MS = 5_000
+// A presence frame (nickname + two base64 public keys + signature, all
+// JSON-wrapped) is ~250+ bytes — always at least 2 chunks at
+// MAX_CHUNK_PAYLOAD_SIZE. Chunks are sent as back-to-back BLE
+// notifications with no ack/retry, so losing just one chunk (more likely
+// during a burst of several peers joining/handshaking at once) silently
+// and permanently drops that peer's identity from every other member's
+// roster for the rest of the session — they'd never see that peer's
+// messages or name. Re-announcing periodically bounds how long a single
+// dropped chunk can matter instead of leaving it broken until reconnect.
+const PRESENCE_HEARTBEAT_INTERVAL_MS = 20_000
 
 export interface IncomingChatMessage {
   fromShortId: number
@@ -52,6 +62,7 @@ export class ChatController {
     await this.broadcastPresence()
 
     setInterval(() => this.reassembler.sweep(Date.now(), REASSEMBLY_TIMEOUT_MS), REASSEMBLY_SWEEP_INTERVAL_MS)
+    setInterval(() => void this.broadcastPresence(), PRESENCE_HEARTBEAT_INTERVAL_MS)
   }
 
   onMessage(cb: (msg: IncomingChatMessage) => void): void {
