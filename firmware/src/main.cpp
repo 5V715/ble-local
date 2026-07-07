@@ -30,15 +30,22 @@ class HubServerCallbacks : public NimBLEServerCallbacks {
     // OutboxCallbacks::onSubscribe below instead, once this connection has
     // actually subscribed and can receive them.
 
+    // A successful connection consumes NimBLE's (legacy, non-extended)
+    // advertising set — the stack does not restart it automatically, only
+    // on a failed connection attempt. Without an explicit restart here,
+    // the hub would stop accepting new devices after exactly one
+    // connection, regardless of how many of the MAX_CONNECTIONS slots are
+    // actually in use.
     if (connectionTable.isFull()) {
       Serial.println("Table full, pausing advertising");
       NimBLEDevice::stopAdvertising();
+    } else {
+      NimBLEDevice::startAdvertising();
     }
   }
 
   void onDisconnect(NimBLEServer* server, NimBLEConnInfo& connInfo, int reason) override {
     uint16_t connHandle = connInfo.getConnHandle();
-    bool wasFull = connectionTable.isFull();
     int16_t shortId = connectionTable.free(connHandle);
 
     if (shortId == INVALID_SHORT_ID) {
@@ -49,10 +56,13 @@ class HubServerCallbacks : public NimBLEServerCallbacks {
     Serial.printf("Connection %u (short id %d) disconnected, reason %d\n", connHandle, shortId, reason);
     broadcastMemberLeft(outboxCharacteristic, connectionTable, (uint8_t)shortId);
 
-    if (wasFull) {
-      Serial.println("Resuming advertising");
-      NimBLEDevice::startAdvertising();
-    }
+    // Advertising is already stopped at this point (either because the
+    // table was full, or because it was consumed by a connect event that
+    // onConnect above didn't yet get a chance to restart) — always resume
+    // it now that a slot is free, rather than only when the table had
+    // been full.
+    Serial.println("Resuming advertising");
+    NimBLEDevice::startAdvertising();
   }
 };
 
