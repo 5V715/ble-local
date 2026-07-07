@@ -195,10 +195,10 @@ export async function mountApp(root: HTMLElement): Promise<void> {
       messageInput.value = ''
       if (activeThreadShortId === null) {
         await controller.sendGroupMessage(text)
-        appendMessage(`me: ${text}`, Date.now())
+        appendMessage(`${identity.nickname}: ${text}`, Date.now())
       } else {
         await controller.sendDirectMessage(activeThreadShortId, text)
-        appendMessage(`me: ${text}`, Date.now())
+        appendMessage(`${identity.nickname}: ${text}`, Date.now())
       }
     })
   })

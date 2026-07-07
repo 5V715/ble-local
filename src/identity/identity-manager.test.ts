@@ -19,6 +19,18 @@ describe('loadOrCreateIdentity', () => {
     expect(second.signPublicKey).toEqual(first.signPublicKey)
     expect(second.dhPublicKey).toEqual(first.dhPublicKey)
   })
+
+  it('adopts a newly chosen nickname on a later call while keeping the same keys', async () => {
+    const db = new IDBFactory()
+    const first = await loadOrCreateIdentity(db, 'alice')
+    const second = await loadOrCreateIdentity(db, 'alicia')
+    expect(second.nickname).toBe('alicia')
+    expect(second.signPublicKey).toEqual(first.signPublicKey)
+    expect(second.dhPublicKey).toEqual(first.dhPublicKey)
+
+    const third = await loadOrCreateIdentity(db, 'alicia')
+    expect(third.nickname).toBe('alicia')
+  })
 })
 
 describe('fingerprint', () => {
