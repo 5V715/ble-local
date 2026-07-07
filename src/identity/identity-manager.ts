@@ -44,7 +44,17 @@ function putRecord(db: IDBDatabase, identity: Identity): Promise<void> {
 export async function loadOrCreateIdentity(factory: IDBFactory, nickname: string): Promise<Identity> {
   const db = await openDb(factory)
   const existing = await getRecord(db)
-  if (existing) return existing
+  if (existing) {
+    // Keys are stable across sessions (that's what makes the safety-number
+    // fingerprint meaningful), but the nickname is chosen fresh on every
+    // join via the setup form — persist it if it changed, rather than
+    // silently keeping whatever name was picked the first time this
+    // browser ever joined.
+    if (existing.nickname === nickname) return existing
+    const updated: Identity = { ...existing, nickname }
+    await putRecord(db, updated)
+    return updated
+  }
 
   const signing = generateSigningKeyPair()
   const dh = generateDhKeyPair()
